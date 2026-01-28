@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+@theme {
+    --color-smart-bg: #1a1a1a;
+    --color-smart-primary: #3b82f6;
+}
