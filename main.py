@@ -80,13 +80,22 @@ def main():
     # OUTPUT_DIR이 존재하지 않는 경우, 생성
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # 연산 디바이스(Device) 결정 로직 추가
-    if CPU_ONLY or not torch.cuda.is_available():
+    # 🌟 연산 디바이스(Device) 결정 로직 (크로스 플랫폼 지원 🌟)
+    if CPU_ONLY:
         device = torch.device('cpu')
-        print("[시스템] 연산 장치: CPU 모드로 실행됩니다.")
-    else:
+        print("🖥️ [시스템] 연산 장치: 강제 CPU 모드로 실행됩니다.")
+    elif torch.cuda.is_available():
+        # 윈도우 데스크탑 (NVIDIA GPU)
         device = torch.device('cuda')
-        print(f"[시스템] 연산 장치: GPU ({torch.cuda.get_device_name(0)}) 모드로 실행됩니다.")
+        print(f"🚀 [시스템] 연산 장치: 윈도우 GPU ({torch.cuda.get_device_name(0)}) 모드로 실행됩니다.")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        # 맥북 M4 Pro 등 (Apple Silicon GPU)
+        device = torch.device('mps')
+        print("🍏 [시스템] 연산 장치: Mac Apple Silicon (MPS) 모드로 실행됩니다.")
+    else:
+        # GPU를 쓸 수 없는 기타 환경
+        device = torch.device('cpu')
+        print("🖥️ [시스템] 연산 장치: 사용 가능한 GPU가 없어 CPU 모드로 실행됩니다.")
 
     # STEP1. ffmpeg를 통한 분석 오디오 추출
 
