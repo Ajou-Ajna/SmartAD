@@ -1,0 +1,19 @@
+[project]
+name = "scene-det-win"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Yujun LEE(Home)",email = "oke05057@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "torch (>=2.10.0,<3.0.0)",
+    "torchaudio (>=2.10.0,<3.0.0)",
+    "psutil (>=7.2.2,<8.0.0)",
+    "packaging (>=26.0,<27.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
