@@ -16,7 +16,7 @@ import re
 # --설정 영역 start--
 
 # 분석할 원본 동영상 파일
-INPUT_FILE = "input.mkv"
+INPUT_FILE = "input.mp4"
 
 # Silero VAD 모델이 분석하기 위해 사용할 임시 오디오 파일의 이름
 TEMP_WAV = "tmep_16k.wav"
