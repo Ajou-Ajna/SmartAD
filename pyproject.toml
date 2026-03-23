@@ -1,18 +1,29 @@
-[project]
-name = "scene-det-win"
+[tool.poetry]
+name = "smartadv"
 version = "0.1.0"
-description = ""
-authors = [
-    {name = "Yujun LEE(Home)",email = "oke05057@gmail.com"}
-]
+description = "SmartADV pipeline for silence detection, STT, multimodal LLM prompting, and TTS audio-description mixing"
+authors = ["Yujun LEE(Home) <oke05057@gmail.com>"]
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
-dependencies = [
-    "torch (>=2.10.0,<3.0.0)",
-    "torchaudio (>=2.10.0,<3.0.0)",
-    "psutil (>=7.2.2,<8.0.0)",
-    "packaging (>=26.0,<27.0)"
-]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+torch = "^2.8.0"
+torchaudio = "^2.8.0"
+psutil = "^7.2.2"
+packaging = "^26.0"
+google-genai = "^1.35.0"
+edge-tts = "^7.2.3"
+soundfile = "^0.13.1"
+python-dotenv = "^1.2.2"
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
+
+[tool.poetry.scripts]
+advengine = "advengine:main"
+llm = "LLM:main"
+tts = "TTS:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
