@@ -1,0 +1,6 @@
+/output_clips/**
+*.env
+*.wav
+*.mkv
+*.mp4
+*.avi

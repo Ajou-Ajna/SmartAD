@@ -3,8 +3,10 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/output_clips/context_audio" />
+      <excludeFolder url="file://$MODULE_DIR$/output_clips/tts_segments" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.11 (Scene_det_Win)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.13" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>
