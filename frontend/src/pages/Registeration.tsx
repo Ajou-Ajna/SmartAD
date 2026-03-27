@@ -1,41 +1,17 @@
 import { FunctionComponent, useState } from "react";
 import NavigationRail from "../components/NavigationRail";
-import InputField from "../components/InputField";
 import ButtonGroup from "../components/ButtonGroup";
 
+// 이미 사용 중인 ID 목록 (실제 서비스에서는 API로 확인)
+const EXISTING_IDS = ["admin", "test", "user"];
+
 const Registeration: FunctionComponent = () => {
-  const [inputFieldItems] = useState([
-    {
-      inputFieldWidth: "230px" as const,
-      iD: "ID",
-      descriptionWidth: "120px" as const,
-      placeholder: "ID 입력",
-      iDMinWidth: "119px" as const,
-      error: "이미 사용중인 ID 입니다",
-      showError: true,
-      errorColor: "#b3261e" as const,
-    },
-    {
-      inputFieldWidth: "345px" as const,
-      iD: "PW",
-      descriptionWidth: "208px" as const,
-      placeholder: "영문 + 숫자 8자 이상 조합",
-      iDMinWidth: "188px" as const,
-      error: "Error",
-      showError: false,
-      errorColor: "#1e1e1e" as const,
-    },
-    {
-      inputFieldWidth: "345px" as const,
-      iD: "PW 재입력",
-      descriptionWidth: "208px" as const,
-      placeholder: "영문 + 숫자 8자 이상 조합",
-      iDMinWidth: "188px" as const,
-      error: "패스워드가 일치하지 않습니다.",
-      showError: true,
-      errorColor: undefined,
-    },
-  ]);
+  const [id, setId] = useState("");
+  const [pw, setPw] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+
+  const showIdError = id.length > 0 && EXISTING_IDS.includes(id);
+  const showPwError = pwConfirm.length > 0 && pw !== pwConfirm;
   return (
     <div className="w-full min-h-screen relative bg-schemes-surface overflow-hidden flex flex-col items-start py-0 px-[13px] box-border leading-[normal] tracking-[normal]">
       <main className="self-stretch flex-1 flex items-start justify-between py-[5px] px-0 gap-0 text-left text-[16px] text-[#000] font-[Roboto]">
@@ -111,19 +87,52 @@ const Registeration: FunctionComponent = () => {
                     type="text"
                   />
                 </div>
-                {inputFieldItems.map((item, index) => (
-                  <InputField
-                    key={index}
-                    inputFieldWidth={item.inputFieldWidth}
-                    iD={item.iD}
-                    descriptionWidth={item.descriptionWidth}
-                    placeholder={item.placeholder}
-                    iDMinWidth={item.iDMinWidth}
-                    error={item.error}
-                    showError={item.showError}
-                    errorColor={item.errorColor}
-                  />
-                ))}
+                <div className="w-[230px] flex flex-col items-start gap-space-200">
+                  <div className="self-stretch relative leading-[140%]">ID</div>
+                  <div className="self-stretch rounded-radius-200 bg-schemes-on-primary border-[#d9d9d9] border-solid border-stroke-border box-border overflow-hidden flex items-center py-2.5 px-[15px] min-w-[120px]">
+                    <input
+                      className="w-full [border:none] [outline:none] font-[Inter] text-[16px] bg-[transparent] h-4 flex-1 relative leading-[100%] text-[#1e1e1e] text-left inline-block min-w-[119px] p-0"
+                      placeholder="ID 입력"
+                      type="text"
+                      value={id}
+                      onChange={(e) => setId(e.target.value)}
+                    />
+                  </div>
+                  {showIdError && (
+                    <div className="relative leading-[140%] text-schemes-error" style={{ color: "#b3261e" }}>
+                      이미 사용중인 ID 입니다
+                    </div>
+                  )}
+                </div>
+                <div className="w-[345px] flex flex-col items-start gap-space-200">
+                  <div className="self-stretch relative leading-[140%]">PW</div>
+                  <div className="self-stretch rounded-radius-200 bg-schemes-on-primary border-[#d9d9d9] border-solid border-stroke-border box-border overflow-hidden flex items-center py-2.5 px-[15px] min-w-[120px]">
+                    <input
+                      className="w-full [border:none] [outline:none] font-[Inter] text-[16px] bg-[transparent] h-4 flex-1 relative leading-[100%] text-[#1e1e1e] text-left inline-block min-w-[188px] p-0"
+                      placeholder="영문 + 숫자 8자 이상 조합"
+                      type="password"
+                      value={pw}
+                      onChange={(e) => setPw(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="w-[345px] flex flex-col items-start gap-space-200">
+                  <div className="self-stretch relative leading-[140%]">PW 재입력</div>
+                  <div className="self-stretch rounded-radius-200 bg-schemes-on-primary border-[#d9d9d9] border-solid border-stroke-border box-border overflow-hidden flex items-center py-2.5 px-[15px] min-w-[120px]">
+                    <input
+                      className="w-full [border:none] [outline:none] font-[Inter] text-[16px] bg-[transparent] h-4 flex-1 relative leading-[100%] text-[#1e1e1e] text-left inline-block min-w-[188px] p-0"
+                      placeholder="영문 + 숫자 8자 이상 조합"
+                      type="password"
+                      value={pwConfirm}
+                      onChange={(e) => setPwConfirm(e.target.value)}
+                    />
+                  </div>
+                  {showPwError && (
+                    <div className="relative leading-[140%] text-schemes-error">
+                      패스워드가 일치하지 않습니다.
+                    </div>
+                  )}
+                </div>
               </div>
               <ButtonGroup
                 align="Justify"

@@ -82,12 +82,6 @@ const DropZone: FunctionComponent<DropZoneType> = ({ className = "", onFileSelec
               state="Enabled"
               type="Round"
               showIcon={false}
-              icon={
-                <img
-                  className="cursor-pointer [border:none] p-0 bg-[transparent] h-5 w-5 relative"
-                  alt=""
-                />
-              }
               labelText="파일 선택"
               onClick={handleFileSelect}
             />

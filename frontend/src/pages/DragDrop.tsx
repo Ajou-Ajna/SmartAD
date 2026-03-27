@@ -1,7 +1,6 @@
 import { FunctionComponent } from "react";
 import NavigationRail from "../components/NavigationRail";
 import DropZone from "../components/DropZone";
-import Switch from "../components/Switch";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 
@@ -47,38 +46,9 @@ const DragDrop: FunctionComponent = () => {
                 type: "file",
                 fileName: file.name,
               });
-              navigate("/download");
+              navigate("/progress", { state: { destination: "/download" } });
             }}
           />
-          <div className="self-stretch flex items-center justify-center flex-wrap content-center py-0 px-7 gap-[47px] text-center font-[Inter] mq450:gap-[23px]">
-            <div className="flex items-center flex-wrap content-center gap-1">
-              <div className="w-[52px] flex flex-col items-start">
-                <Switch icon selected state="Enabled" icon1="/Icon.svg" />
-              </div>
-              <div className="h-[18px] w-[196px] relative tracking-[-0.02em] leading-[120%] font-semibold inline-block">
-                Gemini 3.0 Pro API 사용
-              </div>
-            </div>
-            <div className="flex items-center flex-wrap content-center gap-1">
-              <div className="w-[52px] flex flex-col items-start">
-                <Switch icon selected state="Enabled" icon1="/Icon.svg" />
-              </div>
-              <div className="h-[18px] w-[106px] relative tracking-[-0.02em] leading-[120%] font-semibold inline-block">{`자동 토큰 절약 `}</div>
-            </div>
-            <div className="flex items-center flex-wrap content-center gap-1">
-              <div className="w-[52px] flex flex-col items-start">
-                <Switch
-                  icon
-                  selected={false}
-                  state="Enabled"
-                  icon1="/Icon1.svg"
-                />
-              </div>
-              <div className="h-[18px] w-[141px] relative tracking-[-0.02em] leading-[120%] font-semibold inline-block">
-                합본 오디오 받기
-              </div>
-            </div>
-          </div>
         </div>
       </main>
     </div>

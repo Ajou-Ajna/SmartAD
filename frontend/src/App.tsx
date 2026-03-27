@@ -9,6 +9,7 @@ import DragDrop from "./pages/DragDrop";
 import View from "./pages/View";
 import Download from "./pages/Download";
 import Main from "./pages/Main";
+import ProgressPage from "./pages/ProgressPage";
 import Registeration from "./pages/Registeration";
 import Login from "./pages/Login";
 import Archive from "./pages/Archive";
@@ -87,6 +88,7 @@ function App() {
     <Routes>
       <Route path="/" element={<DragDrop />} />
       <Route path="/url" element={<Main />} />
+      <Route path="/progress" element={<ProgressPage />} />
       <Route path="/view" element={<View />} />
       <Route path="/download" element={<Download />} />
       <Route path="/login" element={<Login />} />

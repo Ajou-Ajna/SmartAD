@@ -1,12 +1,56 @@
-import { FunctionComponent } from "react";
+import { FunctionComponent, useRef, useState, useEffect, useCallback } from "react";
 import NavigationRail1 from "../components/NavigationRail1";
-import IconButtonStandard from "../components/IconButtonStandard";
 import YoutubePlayer from "../components/YoutubePlayer";
-import LinearDeterminateProgressIn from "../components/LinearDeterminateProgressIn";
 import { useAppContext } from "../context/AppContext";
 
 const View: FunctionComponent = () => {
   const { currentItem } = useAppContext();
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onTimeUpdate = () => {
+      if (audio.duration) {
+        setAudioProgress((audio.currentTime / audio.duration) * 100);
+      }
+    };
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnded = () => {
+      setIsPlaying(false);
+      setAudioProgress(0);
+    };
+
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
+    audio.addEventListener("ended", onEnded);
+    return () => {
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("ended", onEnded);
+    };
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) audio.play();
+    else audio.pause();
+  }, []);
+
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const audio = audioRef.current;
+    if (!audio || !audio.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    audio.currentTime = ratio * audio.duration;
+  }, []);
   return (
     <div className="w-full min-h-screen relative bg-schemes-surface overflow-hidden flex items-start pt-0 px-[5px] pb-0 box-border leading-[normal] tracking-[normal]">
       <main className="self-stretch flex-1 flex items-start justify-between py-[5px] px-0 gap-0">
@@ -73,103 +117,44 @@ const View: FunctionComponent = () => {
               ) : (
                 <YoutubePlayer />
               )}
-              <div className="w-full flex flex-col items-center gap-2" style={{ maxWidth: "640px" }}>
-                <div className="self-stretch text-[14px] font-medium font-[Inter] text-schemes-on-surface-variant">
-                  해설 오디오 미리듣기
-                </div>
-                <audio
-                  className="w-full"
-                  controls
-                  src="/dummy_audio.wav"
-                >
-                  브라우저가 오디오를 지원하지 않습니다.
-                </audio>
-              </div>
-            </div>
-            <div className="self-stretch flex items-center justify-center flex-wrap content-center py-0 px-7 gap-[47px] z-[4] shrink-0 text-center font-[Inter] mq750:gap-[23px]">
-              <div className="flex items-center flex-wrap content-center gap-1">
-                <div className="w-[52px] flex flex-col items-start">
-                  <input
-                    className="m-0 self-stretch h-8 rounded-[100px] flex items-center justify-end py-0.5 px-1 box-border"
-                    type="checkbox"
-                  />
-                </div>
-                <div className="flex items-center justify-center">
-                  <div className="relative tracking-[-0.02em] leading-[120%] font-semibold">
-                    Auto Sync 사용
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center flex-wrap content-center gap-1">
-                <div className="w-[52px] flex flex-col items-start">
-                  <input
-                    className="m-0 self-stretch h-8 rounded-[100px] flex items-center justify-end py-0.5 px-1 box-border"
-                    type="checkbox"
-                  />
-                </div>
-                <div className="h-[18px] w-[106px] relative tracking-[-0.02em] leading-[120%] font-semibold inline-block">
-                  Auto Play 사용
-                </div>
-              </div>
-              <div className="flex items-center flex-wrap content-center gap-1">
-                <div className="w-[52px] flex flex-col items-start">
-                  <input
-                    className="m-0 self-stretch h-8 rounded-[100px] border-schemes-outline border-solid border-[2px] box-border flex items-center p-1"
-                    type="checkbox"
-                  />
-                </div>
-                <div className="relative tracking-[-0.02em] leading-[120%] font-semibold">
-                  Audio Ducking 사용
-                </div>
-              </div>
+              <audio ref={audioRef} src="/dummy_audio.wav" preload="metadata" />
             </div>
             <div className="w-full !!m-[0 important] absolute right-[0px] bottom-[-62px] left-[0px] rounded-t-sm rounded-b-2xl bg-schemes-surface overflow-hidden flex flex-col items-center justify-end z-[5] shrink-0 text-static-body-medium-size text-schemes-on-surface">
-              <div className="flex flex-col items-start">
-                <LinearDeterminateProgressIn
-                  progress={50}
-                  thickness="4 dp"
-                  type="Flat"
-                  progress1="50"
-                  thickness1="4 dp"
-                  type1="Flat"
-                  progress2="50"
-                  thickness2="4 dp"
-                  type2="Flat"
+              <div
+                className="w-full h-1 bg-schemes-secondary-container cursor-pointer"
+                onClick={handleProgressClick}
+              >
+                <div
+                  className="h-full bg-schemes-primary transition-[width] duration-150"
+                  style={{ width: `${audioProgress}%` }}
                 />
               </div>
-              <div className="w-[789px] h-16 bg-schemes-surface-container flex items-center py-0 pl-0 pr-5 box-border gap-4">
+              <div className="w-full h-16 bg-schemes-surface-container flex items-center py-0 pl-0 pr-5 box-border gap-4">
                 <img
                   className="h-16 w-16 relative object-cover"
                   loading="lazy"
                   alt=""
                   src="/Image@2x.png"
                 />
-                <div className="flex-1 flex flex-col items-start justify-center gap-0.5">
-                  <div className="self-stretch relative tracking-static-body-medium-tracking leading-static-body-medium-line-height">
-                    아주에서 만난 새로운 세계🌍 | 대학생 브이로그 | 아주대학교
-                    VLOG - [아주캠퍼스] EP.02
+                <div className="flex-1 flex flex-col items-start justify-center gap-0.5 min-w-0">
+                  <div className="self-stretch relative tracking-static-body-medium-tracking leading-static-body-medium-line-height truncate">
+                    {currentItem?.title || "제목 없음"}
                   </div>
-                  <a
-                    className="self-stretch relative text-static-body-small-size [text-decoration:underline] tracking-static-body-small-tracking leading-static-body-small-line-height text-schemes-on-surface-variant"
-                    href="https://www.youtube.com/@-ajouuniversity4682"
-                    target="_blank"
-                  >
-                    아주대학교-Ajou University
-                  </a>
                 </div>
                 <div className="flex items-start">
-                  <IconButtonStandard
-                    size="Small"
-                    state="Enabled"
-                    type="Round"
-                    width="Default"
-                    showLeadingIcon
-                    leadingIconHeight="48px"
-                    leadingIconWidth="48px"
-                    leadingIconBorder="none"
-                    leadingIconPadding="0"
-                    leadingIconBackgroundColor="transparent"
-                  />
+                  <button
+                    className="cursor-pointer [border:none] p-0 bg-[transparent] h-12 w-12 flex items-center justify-center"
+                    onClick={togglePlay}
+                    aria-label={isPlaying ? "일시정지" : "재생"}
+                  >
+                    <svg className="h-6 w-6 text-schemes-on-surface" viewBox="0 0 24 24" fill="currentColor">
+                      {isPlaying ? (
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                      ) : (
+                        <path d="M8 5v14l11-7z" />
+                      )}
+                    </svg>
+                  </button>
                   <button className="cursor-pointer [border:none] p-0 bg-[transparent] h-12 w-12 flex items-center justify-center relative isolate">
                     <img
                       className="cursor-pointer [border:none] p-0 bg-[transparent] h-6 w-6 relative z-[0]"

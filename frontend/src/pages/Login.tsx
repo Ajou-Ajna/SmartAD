@@ -86,10 +86,6 @@ const Login: FunctionComponent = () => {
                   <button className="cursor-pointer border-[#000] border-solid border-[1px] p-0 bg-schemes-on-primary h-10 rounded-[100px] box-border overflow-hidden flex items-center justify-center">
                     <div className="flex items-center justify-center py-2.5 px-4 relative isolate gap-2 shrink-0">
                       <img
-                        className="h-5 w-5 absolute !!m-[0 important] top-[calc(50%_-_10px)] left-[calc(50%_-_10.4px)] z-[0]"
-                        alt=""
-                      />
-                      <img
                         className="h-6 w-6 relative z-[1]"
                         alt=""
                         src="/Google-1.svg"
@@ -103,10 +99,6 @@ const Login: FunctionComponent = () => {
                 <div className="h-12 flex items-center justify-center">
                   <button className="cursor-pointer border-[#000] border-solid border-[1px] p-0 bg-schemes-on-primary h-10 rounded-[100px] box-border overflow-hidden flex items-center justify-center">
                     <div className="flex items-center justify-center py-2.5 px-4 relative isolate gap-2 shrink-0">
-                      <img
-                        className="h-5 w-5 absolute !!m-[0 important] top-[calc(50%_-_10px)] left-[calc(50%_-_10.9px)] z-[0]"
-                        alt=""
-                      />
                       <img
                         className="h-6 w-6 relative z-[1]"
                         alt=""
