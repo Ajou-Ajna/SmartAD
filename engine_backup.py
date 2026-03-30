@@ -1,5 +1,6 @@
 # 파이썬 외부 터미널을 사용하기 위함
 import subprocess
+import sys
 
 # 파이토치 임포트
 import torch
@@ -13,16 +14,21 @@ import psutil
 # FFmpeg 로그 분석을 위한 정규표현식 모듈
 import re
 
+
+def report_progress(pct: int, message: str):
+    """PROGRESS:XX:message 형식으로 stdout에 출력하여 Java 백엔드에 세부 진행률을 전달합니다."""
+    print(f"PROGRESS:{pct}:{message}", flush=True)
+
 # --설정 영역 start--
 
 # 분석할 원본 동영상 파일
-INPUT_FILE = "input.mp4"
-
-# Silero VAD 모델이 분석하기 위해 사용할 임시 오디오 파일의 이름
-TEMP_WAV = "temp_16k.wav"
+INPUT_FILE = os.getenv("SMARTADV_INPUT", "input.mp4")
 
 # 잘라낸 무음 구간 클립들을 모아둘 폴더명
-OUTPUT_DIR = "output_clips"
+OUTPUT_DIR = os.getenv("SMARTADV_OUTPUT", "output_clips")
+
+# Silero VAD 모델이 분석하기 위해 사용할 임시 오디오 파일의 이름
+TEMP_WAV = os.path.join(OUTPUT_DIR, "temp_16k.wav")
 
 # 너무 짧은 구간을 무시하기 위한 최소길이 (초)
 MIN_SILENCE_DURATION = 5.0
@@ -260,6 +266,7 @@ def main():
 
     # STEP1. ffmpeg를 통한 분석 오디오 추출
 
+    report_progress(2, "영상에서 오디오를 추출하는 중...")
     print("[1/4] 영상에서 오디오를 추출하는 중...")
 
     # Silero VAD는 16KHZ 오디오를 가장 잘 인식하기에, 원본 소스를 16KHZ로 리샘플링
@@ -271,6 +278,7 @@ def main():
 
     # STEP2. Silero VAD 로드 및 음성(대사) 구간 탐지
 
+    report_progress(8, "Silero VAD 모델 로드 및 대사 구간 탐지 중...")
     print("[2/4] Silero VAD 모델 로드 및 대사 구간 탐지중...")
 
     # PyTorch Hub를 이용해 깃허브에서 Silero VAD 모델을 직접 가져옴
@@ -310,6 +318,7 @@ def main():
 
     # STEP 3. 무음(Non-speech) 구간 계산 (음성 구간의 반전)
 
+    report_progress(16, "무음 구간 타임스탬프 계산 중...")
     print("[3/4] 무음 구간 타임스탬프 계산 중...")
 
     # 영상의 총 길이를 먼저 구함.
@@ -336,6 +345,7 @@ def main():
 
     # STEP 4. FFmpeg로 무음 구간 원본 영상에서 잘라내기 및 장면 분석
 
+    report_progress(20, f"총 {len(silence_timestamps)}개 무음 구간 분할 및 장면 분석 중...")
     print(f"[4/5] 총 {len(silence_timestamps)}개의 무음 구간을 FFmpeg로 분할 및 분석합니다...")
 
     clip_count = 0
@@ -447,6 +457,7 @@ def main():
             print(f"   -> 장면 전환 없음.")
 
     # STEP 5. 모든 FFmpeg 전처리가 끝난 뒤, 추출된 전후 문맥 음원들에 대해 한 번에 STT 수행
+    report_progress(28, "Whisper STT 음성 인식 전사 중...")
     print("[5/5] 모든 전처리 완료. 추출된 문맥 음원들에 대해 whisper.cpp 전사를 시작합니다...")
 
     write_silence_summary(silence_summaries)
@@ -456,6 +467,7 @@ def main():
     if os.path.exists(TEMP_WAV):
         os.remove(TEMP_WAV)
 
+    report_progress(33, "전처리 엔진 완료")
     print("\n모든 작업이 완료되었습니다")
 
     #  [모니터링 종료 및 결과 출력]

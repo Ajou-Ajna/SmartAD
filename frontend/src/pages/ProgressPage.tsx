@@ -1,9 +1,6 @@
 import { FunctionComponent, useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import NavigationRail1 from "../components/NavigationRail1";
-import CircularIndeterminateProgres from "../components/CircularIndeterminateProgres";
-
-const PROGRESS_DURATION_MS = 3000;
 
 const ProgressPage: FunctionComponent = () => {
   const navigate = useNavigate();
@@ -11,38 +8,114 @@ const ProgressPage: FunctionComponent = () => {
   const destination: string = (location.state as { destination?: string })?.destination ?? "/view";
 
   const [progress, setProgress] = useState(0);
-  const [statusText, setStatusText] = useState("영상 분석 중...");
+  const [statusText, setStatusText] = useState("영상 업로드 중...");
+  const [statusDetail, setStatusDetail] = useState("");
 
   useEffect(() => {
-    const steps = [
-      { at: 0, text: "영상 분석 중..." },
-      { at: 30, text: "음성 구간 감지 중..." },
-      { at: 60, text: "해설 오디오 생성 중..." },
-      { at: 85, text: "마무리 처리 중..." },
-    ];
+    const videoId = (location.state as any)?.videoId;
+    if (!videoId) {
+        setStatusText("업로드된 영상이 없습니다.");
+        return;
+    }
 
-    const startTime = Date.now();
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      const pct = Math.min(Math.floor((elapsed / PROGRESS_DURATION_MS) * 100), 99);
-      setProgress(pct);
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`http://localhost:8080/api/jobs/${videoId}`);
+        if (res.ok) {
+          const job = await res.json();
+          setProgress(job.progress || 0);
 
-      const step = [...steps].reverse().find((s) => pct >= s.at);
-      if (step) setStatusText(step.text);
+          let text = job.status;
+          if (job.status === "PREPROCESSING") text = "영상 분석 및 센서 감지 중...";
+          else if (job.status === "SCRIPT_GENERATING") text = "해설 대본 작성 중...";
+          else if (job.status === "TTS_GENERATING") text = "해설 음성 합성 중...";
+          else if (job.status === "DONE") text = "완료!";
+          else if (job.status === "PENDING") text = "작업 대기 중...";
 
-      if (elapsed >= PROGRESS_DURATION_MS) {
-        clearInterval(interval);
-        setProgress(100);
-        setStatusText("완료!");
-        setTimeout(() => navigate(destination), 300);
+          setStatusText(text);
+          if (job.statusDetail) {
+            setStatusDetail(job.statusDetail);
+          }
+
+          if (job.status === "DONE") {
+            clearInterval(interval);
+            // Get the resulting audio url
+            const resultRes = await fetch(`http://localhost:8080/api/results/video/${videoId}`);
+            let audioUrl = "";
+            let videoUrl = "";
+            if (resultRes.ok) {
+               const resultData = await resultRes.json();
+               audioUrl = resultData.narrationAudioPath;
+               videoUrl = resultData.mergedVideoPath;
+            }
+            setTimeout(() => navigate(destination, { state: { videoId, audioUrl, videoUrl } }), 600);
+          } else if (job.status === "FAILED") {
+            clearInterval(interval);
+            setStatusText("작업 실패!");
+            if (job.statusDetail) setStatusDetail(job.statusDetail);
+          }
+        }
+      } catch (e) {
+        console.error("Polling Error", e);
       }
-    }, 50);
+    }, 1500);
 
     return () => clearInterval(interval);
-  }, [navigate, destination]);
+  }, [navigate, destination, location.state]);
+
+  const isDone = statusText === "완료!";
+  const isFailed = statusText === "작업 실패!";
+  const isActive = !isDone && !isFailed;
 
   return (
     <div className="w-full min-h-screen relative bg-schemes-surface flex flex-col items-start py-0 px-[13px] box-border leading-[normal] tracking-[normal]">
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+        .spinner {
+          width: 100px;
+          height: 100px;
+          border-radius: 50%;
+          border: 5px solid rgba(120, 210, 87, 0.15);
+          border-top-color: #78d257;
+          animation: spin 1s linear infinite;
+        }
+        .pulse-text {
+          animation: pulse 2s ease-in-out infinite;
+        }
+        .progress-ring {
+          width: 120px;
+          height: 120px;
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .progress-ring svg {
+          position: absolute;
+          top: 0; left: 0;
+          width: 100%; height: 100%;
+          transform: rotate(-90deg);
+        }
+        .progress-ring circle {
+          fill: none;
+          stroke-width: 5;
+        }
+        .progress-ring .track {
+          stroke: rgba(120, 210, 87, 0.12);
+        }
+        .progress-ring .fill {
+          stroke: #78d257;
+          stroke-linecap: round;
+          transition: stroke-dashoffset 0.6s ease;
+        }
+      `}</style>
       <main className="self-stretch flex-1 flex items-start justify-between py-[5px] px-0 gap-0 text-left text-[16px] text-schemes-on-surface-variant font-[Roboto]">
         <NavigationRail1
           size="Medium"
@@ -71,26 +144,46 @@ const ProgressPage: FunctionComponent = () => {
           <div className="self-stretch flex items-center py-[9px] px-0 text-center text-schemes-on-surface">
             <div className="flex-1 flex flex-col items-center gap-[22px]">
               <div className="self-stretch relative tracking-static-body-large-tracking leading-static-body-large-line-height">
-                영상 처리 중.....
+                {isActive ? "영상 처리 중....." : statusText}
               </div>
-              <div className="self-stretch flex items-center justify-center text-[32px] text-[#78d257]">
-                <h2 className="m-0 flex-1 relative text-[length:inherit] tracking-static-body-large-tracking leading-static-body-large-line-height font-medium font-[inherit] mq450:text-[19px] mq450:leading-[14px] mq750:text-[26px] mq750:leading-[19px]">
+
+              {/* Progress Ring with percentage */}
+              <div className="progress-ring">
+                <svg viewBox="0 0 120 120">
+                  <circle className="track" cx="60" cy="60" r="54" />
+                  <circle
+                    className="fill"
+                    cx="60" cy="60" r="54"
+                    strokeDasharray={2 * Math.PI * 54}
+                    strokeDashoffset={2 * Math.PI * 54 * (1 - progress / 100)}
+                  />
+                </svg>
+                {isActive && <div className="spinner" style={{ position: 'absolute' }} />}
+                <span
+                  className="relative text-[28px] font-medium"
+                  style={{ color: isFailed ? '#e53935' : '#78d257', zIndex: 1 }}
+                >
                   {progress}%
-                </h2>
+                </span>
               </div>
-              <div className="w-[113px] flex items-center">
-                <CircularIndeterminateProgres
-                  step={1}
-                  thickness="4 dp"
-                  type="Flat"
-                  circularIndeterminateProgresHeight="113px"
-                  circularIndeterminateProgresWidth="unset"
-                  circularIndeterminateProgresFlex="1"
-                />
-              </div>
-              <div className="self-stretch relative tracking-static-body-large-tracking leading-static-body-large-line-height">
+
+              {/* Main status */}
+              <div
+                className="self-stretch relative tracking-static-body-large-tracking leading-static-body-large-line-height font-medium"
+                style={{ fontSize: '15px' }}
+              >
                 {statusText}
               </div>
+
+              {/* Detail status */}
+              {statusDetail && (
+                <div
+                  className={`self-stretch relative tracking-static-body-large-tracking leading-static-body-large-line-height text-schemes-on-surface-variant ${isActive ? 'pulse-text' : ''}`}
+                  style={{ fontSize: '13px', marginTop: '-12px' }}
+                >
+                  {statusDetail}
+                </div>
+              )}
             </div>
           </div>
         </div>

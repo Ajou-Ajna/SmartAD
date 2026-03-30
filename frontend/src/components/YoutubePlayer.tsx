@@ -9,7 +9,7 @@ const YoutubePlayer: FunctionComponent<YoutubePlayerType> = ({
 }) => {
   return (
     <div
-      className={`absolute top-[0px] left-[164px] w-[490px] h-[276px] flex flex-col items-start isolate gap-2.5 bg-[url('/public/Youtube-player@3x.png')] bg-cover bg-no-repeat bg-[top] text-left text-[15px] text-[#eaeaea] font-[Inter] ${className}`}
+      className={`absolute top-[0px] left-[164px] w-[490px] h-[276px] flex flex-col items-start isolate gap-2.5 bg-[url('/Youtube-player@3x.png')] bg-cover bg-no-repeat bg-[top] text-left text-[15px] text-[#eaeaea] font-[Inter] ${className}`}
     >
       <div className="w-[490px] flex flex-col items-start gap-[84px] z-[0]">
         <div className="self-stretch h-24 relative [background:linear-gradient(180deg,_rgba(0,_0,_0,_0),_rgba(0,_0,_0,_0.25))] [transform:_rotate(180deg)]" />

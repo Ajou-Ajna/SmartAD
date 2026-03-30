@@ -1,16 +1,23 @@
 import { FunctionComponent, useRef, useState, useEffect, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import NavigationRail1 from "../components/NavigationRail1";
 import YoutubePlayer from "../components/YoutubePlayer";
 import { useAppContext } from "../context/AppContext";
 
 const View: FunctionComponent = () => {
   const { currentItem } = useAppContext();
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const location = useLocation();
+  const audioUrlFromBackend = (location.state as any)?.audioUrl;
+  const videoUrlFromBackend = (location.state as any)?.videoUrl;
+  const finalAudioUrl = audioUrlFromBackend ? `http://localhost:8080/api/storage/stream?url=${encodeURIComponent(audioUrlFromBackend)}` : "/dummy_audio.wav";
+  const finalVideoUrl = videoUrlFromBackend ? `http://localhost:8080/api/storage/stream?url=${encodeURIComponent(videoUrlFromBackend)}` : "";
+  
+  const mediaRef = useRef<HTMLVideoElement>(null);
   const [audioProgress, setAudioProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
-    const audio = audioRef.current;
+    const audio = mediaRef.current;
     if (!audio) return;
 
     const onTimeUpdate = () => {
@@ -38,14 +45,14 @@ const View: FunctionComponent = () => {
   }, []);
 
   const togglePlay = useCallback(() => {
-    const audio = audioRef.current;
+    const audio = mediaRef.current;
     if (!audio) return;
     if (audio.paused) audio.play();
     else audio.pause();
   }, []);
 
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const audio = audioRef.current;
+    const audio = mediaRef.current;
     if (!audio || !audio.duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = (e.clientX - rect.left) / rect.width;
@@ -88,7 +95,16 @@ const View: FunctionComponent = () => {
               </div>
             </div>
             <div className="self-stretch relative z-[3] shrink-0 flex flex-col items-center gap-4 px-6">
-              {currentItem?.url ? (
+              {finalVideoUrl ? (
+                <video
+                  ref={mediaRef}
+                  className="w-full rounded-xl"
+                  style={{ aspectRatio: "16/9", maxWidth: "640px" }}
+                  src={finalVideoUrl}
+                  controls={false}
+                  preload="metadata"
+                />
+              ) : currentItem?.url ? (
                 <iframe
                   className="w-full rounded-xl"
                   style={{ aspectRatio: "16/9", maxWidth: "640px" }}
@@ -117,7 +133,6 @@ const View: FunctionComponent = () => {
               ) : (
                 <YoutubePlayer />
               )}
-              <audio ref={audioRef} src="/dummy_audio.wav" preload="metadata" />
             </div>
             <div className="w-full !!m-[0 important] absolute right-[0px] bottom-[-62px] left-[0px] rounded-t-sm rounded-b-2xl bg-schemes-surface overflow-hidden flex flex-col items-center justify-end z-[5] shrink-0 text-static-body-medium-size text-schemes-on-surface">
               <div

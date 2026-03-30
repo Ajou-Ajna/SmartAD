@@ -1,4 +1,5 @@
 import csv
+import concurrent.futures
 import io
 import os
 import re
@@ -13,12 +14,16 @@ from google.genai import types
 
 
 
+def report_progress(pct: int, message: str):
+    """PROGRESS:XX:message 형식으로 stdout에 출력하여 Java 백엔드에 세부 진행률을 전달합니다."""
+    print(f"PROGRESS:{pct}:{message}", flush=True)
+
 
 # ===== 설정 =====
 
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = BASE_DIR / "output_clips"
+OUTPUT_DIR = Path(os.getenv("SMARTADV_OUTPUT", BASE_DIR / "output_clips"))
 SILENCE_SUMMARY_PATH = OUTPUT_DIR / "silence_summary.txt"
 STT_SUMMARY_PATH = OUTPUT_DIR / "stt_summary.txt"
 
@@ -277,14 +282,19 @@ def build_multimodal_contents(prompt: str, silences: Dict[int, SilenceInfo], cli
 
     total_images = len(image_paths)
     print(f"[프롬프트] Files API 업로드 시작: 총 이미지 {total_images}개")
+    report_progress(45, f"Gemini에 키프레임 이미지 {total_images}장 업로드 시작...")
 
     for idx, image_path in enumerate(image_paths, start=1):
+        # Map upload progress to 45% ~ 58% range
+        upload_pct = 45 + int((idx / total_images) * 13) if total_images > 0 else 45
+        report_progress(upload_pct, f"이미지 업로드 중 ({idx}/{total_images}): {image_path.name}")
         print(f"[Files API] 업로드 중 ({idx}/{total_images}): {image_path.name}")
         uploaded_file = upload_gemini_file(client, image_path)
         contents.append(uploaded_file)
         uploaded_file_names.append(uploaded_file.name)
         print(f"[Files API] 업로드 완료 ({idx}/{total_images}): {image_path.name} -> {uploaded_file.name}")
 
+    report_progress(58, "이미지 업로드 완료! Gemini AI 응답 대기 중...")
     print(f"[프롬프트] Files API 업로드 완료: 텍스트 1개 + 원격 이미지 {total_images}개")
     return contents, uploaded_file_names
 def upload_gemini_file(client, file_path: Path):
@@ -446,25 +456,61 @@ def call_gemini(prompt: str, silences: Dict[int, SilenceInfo]) -> str:
     client = genai.Client(api_key=api_key)
     cleanup_gemini_files(client)
     contents, uploaded_file_names = build_multimodal_contents(prompt, silences, client)
-    print(f"[Gemini] 요청 시작: model={GEMINI_MODEL}")
+
+    # Gemini API 호출 타임아웃 (초)
+    GEMINI_TIMEOUT_SECONDS = 120  # 2분
+
+    # 시도할 모델 목록 (primary → fallback)
+    models_to_try = [GEMINI_MODEL, "gemini-2.0-flash"]
+    max_retries = 3
+    last_error = None
 
     try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="text/plain",
-            ),
-        )
+        for model_name in models_to_try:
+            for attempt in range(1, max_retries + 1):
+                try:
+                    report_progress(58, f"Gemini AI 응답 대기 중... (모델: {model_name}, 시도 {attempt}/{max_retries})")
+                    print(f"[Gemini] 요청 시작: model={model_name} (시도 {attempt}/{max_retries}, 타임아웃 {GEMINI_TIMEOUT_SECONDS}초)")
+
+                    # 별도 스레드에서 API 호출하고 2분 내 응답 없으면 타임아웃
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(
+                            client.models.generate_content,
+                            model=model_name,
+                            contents=contents,
+                            config=types.GenerateContentConfig(
+                                temperature=0.2,
+                                response_mime_type="text/plain",
+                            ),
+                        )
+                        try:
+                            response = future.result(timeout=GEMINI_TIMEOUT_SECONDS)
+                        except concurrent.futures.TimeoutError:
+                            raise TimeoutError(f"Gemini API 응답 {GEMINI_TIMEOUT_SECONDS}초 타임아웃 (503 UNAVAILABLE)")
+
+                    print("[Gemini] 응답 수신 완료")
+                    if not response.text:
+                        raise ValueError("Gemini 응답 텍스트가 비어 있습니다.")
+                    return response.text
+
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e)
+                    is_retryable = any(kw in error_str for kw in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "INTERNAL", "Timeout", "타임아웃"])
+                    if is_retryable and attempt < max_retries:
+                        wait_sec = 10 * attempt  # 10초, 20초, 30초
+                        report_progress(58, f"서버 과부하/타임아웃! {wait_sec}초 후 재시도... ({attempt}/{max_retries})")
+                        print(f"[Gemini] 재시도 사유: ({error_str[:80]}...). {wait_sec}초 후 재시도합니다.")
+                        time.sleep(wait_sec)
+                    elif is_retryable:
+                        print(f"[Gemini] 모델 {model_name} 최대 재시도 초과. 다음 모델로 전환합니다.")
+                        break  # 다음 모델로
+                    else:
+                        raise  # 재시도 불가능한 에러는 바로 raise
+
+        raise last_error  # 모든 모델/재시도 실패
     finally:
         delete_uploaded_gemini_files(client, uploaded_file_names)
-
-    print("[Gemini] 응답 수신 완료")
-    if not response.text:
-        raise ValueError("Gemini 응답 텍스트가 비어 있습니다.")
-
-    return response.text
 
 
 def load_all_inputs() -> Dict[int, SilenceInfo]:
@@ -479,18 +525,23 @@ def load_all_inputs() -> Dict[int, SilenceInfo]:
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    report_progress(35, "전처리 결과 파일 파싱 중...")
     silences = load_all_inputs()
     print(f"[2/4] 무음구간 데이터 준비 완료: {len(silences)}개")
     if not silences:
         raise ValueError("처리할 무음구간 데이터가 없습니다.")
 
+    report_progress(40, "Gemini 프롬프트 구성 중...")
     print("[3/4] Gemini 프롬프트 생성 시작")
     prompt = build_prompt(silences)
     print("[3/4] Gemini 프롬프트 생성 완료")
+
+    report_progress(45, "Gemini AI에 해설 대본 요청 중... (최대 수 분 소요)")
     print("[4/4] Gemini 호출 시작")
     raw_response = call_gemini(prompt, silences)
     print(f"[4/4] Gemini 호출 완료: 응답 {len(raw_response)}자")
 
+    report_progress(60, "AI 응답 후처리 및 대본 저장 중...")
     print("[저장] 원본 응답 저장 시작")
     LLM_RAW_OUTPUT_PATH.write_text(raw_response, encoding="utf-8")
     print(f"[저장] 원본 응답 저장 완료: {LLM_RAW_OUTPUT_PATH}")
@@ -501,6 +552,7 @@ def main() -> None:
     LLM_TXT_OUTPUT_PATH.write_text(csv_to_txt(normalized_csv), encoding="utf-8")
     print("[저장] 응답 후처리 및 파일 저장 완료")
 
+    report_progress(66, "해설 대본 생성 완료")
     print(f"Gemini 원본 응답 저장: {LLM_RAW_OUTPUT_PATH}")
     print(f"Gemini CSV 저장: {LLM_CSV_OUTPUT_PATH}")
     print(f"Gemini TXT 저장: {LLM_TXT_OUTPUT_PATH}")

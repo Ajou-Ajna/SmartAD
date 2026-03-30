@@ -12,9 +12,13 @@ from typing import List, Tuple
 load_dotenv()
 
 
+def report_progress(pct: int, message: str):
+    """PROGRESS:XX:message 형식으로 stdout에 출력하여 Java 백엔드에 세부 진행률을 전달합니다."""
+    print(f"PROGRESS:{pct}:{message}", flush=True)
+
 BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = BASE_DIR / "output_clips"
-INPUT_VIDEO_PATH = BASE_DIR / "input.mp4"
+OUTPUT_DIR = Path(os.getenv("SMARTADV_OUTPUT", BASE_DIR / "output_clips"))
+INPUT_VIDEO_PATH = Path(os.getenv("SMARTADV_INPUT", BASE_DIR / "input.mp4"))
 LLM_CSV_PATH = OUTPUT_DIR / "gemini_ad_script.csv"
 
 TTS_SEGMENTS_DIR = OUTPUT_DIR / "tts_segments"
@@ -346,14 +350,19 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     TTS_SEGMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
+    report_progress(68, "해설 대본 CSV 로드 중...")
     rows = load_ad_rows(LLM_CSV_PATH)
     if not rows:
         raise ValueError("TTS로 변환할 해설 문장이 없습니다. gemini_ad_script.csv를 확인하세요.")
 
+    report_progress(72, f"{len(rows)}개 해설 문장 TTS 음성 합성 중...")
     segments = generate_tts_segments(rows)
     write_tts_timeline(segments, TTS_TIMELINE_PATH)
+
+    report_progress(85, "원본 영상과 해설 음성 믹싱 중...")
     final_audio_path, final_video_path = render_narration_and_final_mix(INPUT_VIDEO_PATH, segments)
 
+    report_progress(99, "최종 영상 생성 완료!")
     print(f"TTS 타임라인 저장: {TTS_TIMELINE_PATH}")
     print(f"내레이션 믹스 저장: {NARRATION_MIX_PATH}")
     print(f"최종 오디오 저장: {final_audio_path}")

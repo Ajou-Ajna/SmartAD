@@ -40,13 +40,30 @@ const DragDrop: FunctionComponent = () => {
             </div>
           </div>
           <DropZone
-            onFileSelected={(file) => {
+            onFileSelected={async (file) => {
               addArchiveItem({
                 title: file.name,
                 type: "file",
                 fileName: file.name,
               });
-              navigate("/progress", { state: { destination: "/download" } });
+
+              const formData = new FormData();
+              formData.append("file", file);
+              
+              try {
+                const response = await fetch("http://localhost:8080/api/videos/upload", {
+                  method: "POST",
+                  body: formData,
+                });
+                if (response.ok) {
+                  const data = await response.json();
+                  navigate("/progress", { state: { destination: "/view", videoId: data.id } });
+                } else {
+                  console.error("Upload failed");
+                }
+              } catch (e) {
+                console.error("Upload Error", e);
+              }
             }}
           />
         </div>
