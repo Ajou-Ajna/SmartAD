@@ -1,4 +1,0 @@
-silence_id,scene_id,start_time,end_time,audio_file,audio_duration_seconds,synthesis_speed,text
-1,2,00:00:01,00:00:05,silence_001_scene_002.wav,3.181,1.350,회색 맨투맨을 입은 남자가 손가락을 들어 보이며 웃는다.
-1,3,00:00:05,00:00:09,silence_001_scene_003.wav,3.185,1.350,안경을 쓴 남자가 병풍 앞 소파에 앉아 무표정하게 앞을 본다.
-2,2,00:02:14,00:02:19,silence_002_scene_002.wav,4.181,1.350,안경을 쓴 남자가 지갑에서 지폐를 꺼내자 맞은편 남자가 허리를 숙여 인사한다.

@@ -13,6 +13,7 @@ import psutil
 
 # FFmpeg 로그 분석을 위한 정규표현식 모듈
 import re
+import glob
 
 
 def report_progress(pct: int, message: str):
@@ -34,18 +35,22 @@ TEMP_WAV = os.path.join(OUTPUT_DIR, "temp_16k.wav")
 MIN_SILENCE_DURATION = 5.0
 
 # 장면 전환(카메라 컷) 감지 민감도 (기본 0.3)
-SCENE_THRESHOLD = 0.3
+SCENE_THRESHOLD = 0.25
 
 
 # 장면 캡처시 캡처 간격 설정
 SCENE_GAP = 1.0
 MIN_SCENE_DURATION = 3.0
 
+# 장면전환 간격이 이보다 짧으면 하나의 scene으로 묶음 (초)
+MIN_CUT_WINDOW = 5.0
+
 # 무음 구간 전후 음원 추출 시 추출할 길이
 CONTEXT_WINDOW = 15.0
 CONTEXT_AUDIO_DIR = os.path.join(OUTPUT_DIR, "context_audio")
-WHISPER_CPP_BIN = "/Users/yujunlee/whisper.cpp/build/bin/whisper-cli"
-WHISPER_MODEL = "/Users/yujunlee/whisper.cpp/models/ggml-small.bin"
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WHISPER_CPP_BIN = os.getenv("WHISPER_CPP_BIN", os.path.join(_BASE_DIR, "whisper.cpp", "build", "bin", "whisper-cli"))
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", os.path.join(_BASE_DIR, "whisper.cpp", "models", "ggml-small.bin"))
 STT_OUTPUT_FILE = os.path.join(OUTPUT_DIR, "stt_summary.txt")
 
 # 하드웨어 가속 설정 (True: CPU 강제 사용, False: 가능하면 GPU 사용)
@@ -108,33 +113,73 @@ def detect_scene_changes(video_path, threshold=0.3, start_time=None, end_time=No
 
 
 def format_timestamp(seconds):
-    # 초 단위를 HH:MM:SS 형식 문자열로 변환
-    total_seconds = max(0, int(seconds))
+    # 초 단위를 HH:MM:SS:mmm 형식 문자열로 변환
+    seconds = max(0.0, seconds)
+    total_ms = int(round(seconds * 1000))
+    ms = total_ms % 1000
+    total_seconds = total_ms // 1000
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
     secs = total_seconds % 60
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}:{ms:03d}"
+
+def group_cuts_into_scenes(scene_times, silence_start, silence_end):
+    """첫 장면전환 시점부터 누적하여, 다음 cut을 포함하면 span >= 5초가 되는 시점에서 scene을 끊습니다.
+    마지막 scene의 window(first_cut ~ silence_end)가 5초 미만이면 이전 scene에 합칩니다.
+    반환: [ [abs_time, ...], ... ]  — 각 리스트가 하나의 scene(절대 시각)."""
+    if not scene_times:
+        return []
+
+    absolute_times = [silence_start + t for t in scene_times]
+    scenes = []
+    current_scene = [absolute_times[0]]
+    scene_start = absolute_times[0]
+
+    for i in range(1, len(absolute_times)):
+        if absolute_times[i] - scene_start >= MIN_CUT_WINDOW:
+            scenes.append(current_scene)
+            current_scene = [absolute_times[i]]
+            scene_start = absolute_times[i]
+        else:
+            current_scene.append(absolute_times[i])
+
+    scenes.append(current_scene)
+
+    # 마지막 scene의 window(first_cut ~ silence_end)가 5초 미만이면 이전 scene에 합침
+    if len(scenes) >= 2:
+        last_window = silence_end - scenes[-1][0]
+        if last_window < MIN_CUT_WINDOW:
+            scenes[-2] = scenes[-2] + scenes[-1]
+            scenes.pop()
+
+    return scenes
+
 
 def write_silence_summary(silence_summaries):
     output_path = os.path.join(OUTPUT_DIR, "silence_summary.txt")
 
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write("[무음 구간 타임스탬프 요약]\n")
+        f.write("[silence timestamp summary]\n")
 
         if not silence_summaries:
-            f.write("무음 구간 정보가 없습니다.\n")
+            f.write("no silence segments found.\n")
         else:
             for summary in silence_summaries:
                 silence_start_text = format_timestamp(summary['start'])
                 silence_end_text = format_timestamp(summary['end'])
-                f.write(f"무음구간 {summary['index']}. ({silence_start_text} ~ {silence_end_text})\n")
+                f.write(f"silence{summary['index']:03d} ({silence_start_text} ~ {silence_end_text})\n")
 
-                if not summary['scene_times']:
-                    f.write("장면전환 NULL\n")
+                scenes = summary.get('scenes', [])
+                if not scenes:
+                    pass  # 장면전환 없음 — 해설 대상 없음
                 else:
-                    for scene_idx, scene_time in enumerate(summary['scene_times'], start=1):
-                        absolute_scene_time = summary['start'] + scene_time
-                        f.write(f"장면전환 {scene_idx} {format_timestamp(absolute_scene_time)}\n")
+                    for i, scene_transitions in enumerate(scenes):
+                        first_cut = scene_transitions[0]
+                        if i + 1 < len(scenes):
+                            window_end = scenes[i + 1][0]  # 다음 scene의 첫 장면전환
+                        else:
+                            window_end = summary['end']     # 마지막 scene은 silence 끝까지
+                        f.write(f"scene{i + 1:03d} ({format_timestamp(first_cut)} ~ {format_timestamp(window_end)})\n")
 
                 f.write("\n")
 
@@ -246,6 +291,11 @@ def main():
     # OUTPUT_DIR이 존재하지 않는 경우, 생성
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(CONTEXT_AUDIO_DIR, exist_ok=True)
+
+    # 이전 실행의 scene 이미지 정리
+    for old_img in glob.glob(os.path.join(OUTPUT_DIR, "silence*_scene*_cut*.jpg")):
+        os.remove(old_img)
+    print("[정리] 이전 scene 이미지 삭제 완료")
 
     # 🌟 연산 디바이스(Device) 결정 로직 (크로스 플랫폼 지원 🌟)
     if CPU_ONLY:
@@ -419,40 +469,47 @@ def main():
             end_time=end,
             min_scene_duration=MIN_SCENE_DURATION,
         )
+
+        # 장면전환 간격 < 5초인 것들을 scene 단위로 묶기
+        scenes = group_cuts_into_scenes(scene_times, start, end)
+
         silence_summaries.append({
             'index': clip_count,
             'start': start,
             'end': end,
             'scene_times': scene_times,
+            'scenes': scenes,
             'before_audio_file': before_audio_file if before_duration > 0 else None,
             'before_time_offset': before_start if before_duration > 0 else None,
             'after_audio_file': after_audio_file if after_duration > 0 else None,
             'after_time_offset': after_start if after_duration > 0 else None,
         })
 
-        if scene_times:
-            print(f"   -> {len(scene_times)}번의 장면 전환 발견. 프레임 이미지 추출 및 음원 추출 시작...")
+        if scenes:
+            total_transitions = sum(len(s) for s in scenes)
+            print(f"   -> {total_transitions}번의 장면 전환 → {len(scenes)}개 scene으로 분류. 프레임 이미지 추출 시작...")
 
-            # 컷 전/후 프레임 이미지 추출 (직전 0.1초, 직후 사용자 설정 초 이후 프레임 캡처)
-            for idx, stime in enumerate(scene_times):
-                absolute_cut_time = start + stime
-                before_time = max(0.0, absolute_cut_time - 0.1)
-                after_time = absolute_cut_time + SCENE_GAP
+            for scene_idx, scene_transitions in enumerate(scenes, start=1):
+                img_seq = 0
+                for transition_time in scene_transitions:
+                    before_time = max(0.0, transition_time - 0.1)
+                    after_time = transition_time + SCENE_GAP
 
-                img_before = os.path.join(OUTPUT_DIR, f"silence_{clip_count:03d}_cut{idx + 1:02d}_before.jpg")
-                img_after = os.path.join(OUTPUT_DIR, f"silence_{clip_count:03d}_cut{idx + 1:02d}_after.jpg")
+                    # 직전 프레임 추출
+                    img_seq += 1
+                    img_before = os.path.join(OUTPUT_DIR, f"silence{clip_count:03d}_scene{scene_idx:03d}_cut{img_seq:02d}.jpg")
+                    subprocess.run([
+                        "ffmpeg", "-y", "-ss", str(before_time), "-i", INPUT_FILE,
+                        "-vframes", "1", "-q:v", "2", img_before
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-                # 직전 프레임 추출 (원본 영상 기준 절대 시각 사용)
-                subprocess.run([
-                    "ffmpeg", "-y", "-ss", str(before_time), "-i", INPUT_FILE,
-                    "-vframes", "1", "-q:v", "2", img_before
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-                # 직후 프레임 추출 (원본 영상 기준 절대 시각 사용)
-                subprocess.run([
-                    "ffmpeg", "-y", "-ss", str(after_time), "-i", INPUT_FILE,
-                    "-vframes", "1", "-q:v", "2", img_after
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    # 직후 프레임 추출
+                    img_seq += 1
+                    img_after = os.path.join(OUTPUT_DIR, f"silence{clip_count:03d}_scene{scene_idx:03d}_cut{img_seq:02d}.jpg")
+                    subprocess.run([
+                        "ffmpeg", "-y", "-ss", str(after_time), "-i", INPUT_FILE,
+                        "-vframes", "1", "-q:v", "2", img_after
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             print(f"   -> 장면 전환 없음.")
 

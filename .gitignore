@@ -1,6 +1,36 @@
-/output_clips/**
+# Python engine output
+/output_clips/
+
+# Environment & secrets
 *.env
+
+# Media files
 *.wav
 *.mkv
 *.mp4
 *.avi
+*.m4a
+*.mp3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node / Frontend
+node_modules/
+package-lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# whisper.cpp (local build)
+/whisper.cpp/
+
+# Mock S3 storage (runtime data)
+/mock-s3-storage/

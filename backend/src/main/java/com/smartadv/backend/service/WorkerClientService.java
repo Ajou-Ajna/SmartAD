@@ -33,6 +33,9 @@ public class WorkerClientService {
     @Value("${smartadv.storage.mock-s3-dir}")
     private String mockStorageLocation;
 
+    @Value("${smartadv.engine.root-dir:..}")
+    private String engineRootDir;
+
     // Pattern to match PROGRESS:XX:message from Python stdout
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("^PROGRESS:(\\d+):(.+)$");
 
@@ -119,11 +122,11 @@ public class WorkerClientService {
     }
 
     private int runPythonProcess(String scriptName, String smartadvInput, String smartadvOutput, Long jobId) throws Exception {
-        log.info("Executing poetry run python {} ...", scriptName);
-        ProcessBuilder pb = new ProcessBuilder("poetry", "run", "python", scriptName);
+        // SmartADV Python engine root directory (configurable via smartadv.engine.root-dir)
+        Path projectRoot = Paths.get(engineRootDir).toAbsolutePath().normalize();
+        log.info("Executing poetry run python {} (cwd={})", scriptName, projectRoot);
 
-        // Ensure working directory is the SmartADV root (parent of backend)
-        Path projectRoot = Paths.get(System.getProperty("user.dir")).getParent().toAbsolutePath().normalize();
+        ProcessBuilder pb = new ProcessBuilder("poetry", "run", "python", scriptName);
         pb.directory(projectRoot.toFile());
 
         // Pass dynamic IO environment variables
@@ -133,10 +136,20 @@ public class WorkerClientService {
         pb.redirectErrorStream(true);
         Process process = pb.start();
 
+        StringBuilder lastLines = new StringBuilder();
         try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = br.readLine()) != null) {
                 log.info("[{}] {}", scriptName, line);
+                // 마지막 20줄 보관 (에러 발생 시 디버깅용)
+                lastLines.append(line).append("\n");
+                String[] stored = lastLines.toString().split("\n");
+                if (stored.length > 20) {
+                    lastLines = new StringBuilder();
+                    for (int i = stored.length - 20; i < stored.length; i++) {
+                        lastLines.append(stored[i]).append("\n");
+                    }
+                }
 
                 // Parse PROGRESS:XX:message lines from Python
                 Matcher m = PROGRESS_PATTERN.matcher(line);
@@ -147,6 +160,11 @@ public class WorkerClientService {
                 }
             }
         }
-        return process.waitFor();
+
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            log.error("[{}] 비정상 종료 (exit code {}). 마지막 출력:\n{}", scriptName, exitCode, lastLines);
+        }
+        return exitCode;
     }
 }

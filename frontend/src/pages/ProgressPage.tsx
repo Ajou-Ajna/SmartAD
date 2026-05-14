@@ -20,7 +20,7 @@ const ProgressPage: FunctionComponent = () => {
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`http://localhost:8080/api/jobs/${videoId}`);
+        const res = await fetch(`/api/jobs/${videoId}`);
         if (res.ok) {
           const job = await res.json();
           setProgress(job.progress || 0);
@@ -40,7 +40,7 @@ const ProgressPage: FunctionComponent = () => {
           if (job.status === "DONE") {
             clearInterval(interval);
             // Get the resulting audio url
-            const resultRes = await fetch(`http://localhost:8080/api/results/video/${videoId}`);
+            const resultRes = await fetch(`/api/results/video/${videoId}`);
             let audioUrl = "";
             let videoUrl = "";
             if (resultRes.ok) {

@@ -51,7 +51,7 @@ const DragDrop: FunctionComponent = () => {
               formData.append("file", file);
               
               try {
-                const response = await fetch("http://localhost:8080/api/videos/upload", {
+                const response = await fetch("/api/videos/upload", {
                   method: "POST",
                   body: formData,
                 });

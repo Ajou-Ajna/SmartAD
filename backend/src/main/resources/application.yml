@@ -25,3 +25,5 @@ spring:
 smartadv:
   storage:
     mock-s3-dir: ../mock-s3-storage
+  engine:
+    root-dir: ..
