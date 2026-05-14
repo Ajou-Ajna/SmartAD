@@ -93,7 +93,7 @@
 | 값 | 의미 | progress 범위 |
 |---|---|---|
 | `PENDING` | 작업 대기 중 | 0% |
-| `PREPROCESSING` | engine_backup.py 실행 중 (VAD, 무음감지, STT) | 1% ~ 33% |
+| `PREPROCESSING` | engine_backup.py 실행 중 (VAD, 무대사 구간 감지, STT) | 1% ~ 33% |
 | `SCRIPT_GENERATING` | LLM.py 실행 중 (이미지 업로드, Gemini AI 호출) | 34% ~ 66% |
 | `TTS_GENERATING` | TTS.py 실행 중 (음성 합성, 영상 믹싱) | 67% ~ 99% |
 | `DONE` | 모든 처리 완료 | 100% |

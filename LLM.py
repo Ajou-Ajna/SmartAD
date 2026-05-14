@@ -13,14 +13,12 @@ from google import genai
 from google.genai import types
 
 
-
 def report_progress(pct: int, message: str):
     """PROGRESS:XX:message 형식으로 stdout에 출력하여 Java 백엔드에 세부 진행률을 전달합니다."""
     print(f"PROGRESS:{pct}:{message}", flush=True)
 
 
 # ===== 설정 =====
-
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(os.getenv("SMARTADV_OUTPUT", BASE_DIR / "output_clips"))
@@ -31,7 +29,6 @@ CONTEXT_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 GEMINI_MODEL = "gemini-3-flash-preview"
 LLM_RAW_OUTPUT_PATH = OUTPUT_DIR / "gemini_ad_raw.txt"
 LLM_CSV_OUTPUT_PATH = OUTPUT_DIR / "gemini_ad_script.csv"
-
 LLM_TXT_OUTPUT_PATH = OUTPUT_DIR / "gemini_ad_script.txt"
 
 GEMINI_CLEAR_FILES_BEFORE_REQUEST = os.getenv("GEMINI_CLEAR_FILES_BEFORE_REQUEST", "1") == "1"
@@ -39,17 +36,19 @@ GEMINI_DELETE_UPLOADED_FILES_AFTER_REQUEST = os.getenv("GEMINI_DELETE_UPLOADED_F
 GEMINI_FILE_POLL_INTERVAL_SECONDS = float(os.getenv("GEMINI_FILE_POLL_INTERVAL_SECONDS", "2.0"))
 GEMINI_FILE_POLL_TIMEOUT_SECONDS = float(os.getenv("GEMINI_FILE_POLL_TIMEOUT_SECONDS", "60.0"))
 
+TTS_SYLLABLES_PER_SECOND = 4   # TTS 초당 발화 음절 수
+TTS_MARGIN_SECONDS = 0.5        # 해설 분량 계산 시 여유 시간 (초)
+
 
 # ===== 데이터 구조 =====
 @dataclass
 class SceneInfo:
+    """장면전환 간격 < 5초인 cut들을 묶은 해설 단위."""
     scene_id: int
-    start_seconds: float
-    end_seconds: float
-    duration_seconds: float
-    cut_time_seconds: Optional[float] = None
-    before_image: Optional[Path] = None
-    after_image: Optional[Path] = None
+    window_start_abs: float                 # scene의 첫 장면전환 시각
+    window_end_abs: float                   # 다음 scene의 첫 장면전환 또는 silence 끝
+    window_duration: float                  # window_end_abs - window_start_abs
+    images: List[Path] = field(default_factory=list)   # 시간순 키프레임 이미지
 
 
 @dataclass
@@ -57,7 +56,6 @@ class SilenceInfo:
     silence_id: int
     start_seconds: float
     end_seconds: float
-    scene_cut_seconds: List[float] = field(default_factory=list)
     context_before_lines: List[str] = field(default_factory=list)
     context_after_lines: List[str] = field(default_factory=list)
     scenes: List[SceneInfo] = field(default_factory=list)
@@ -65,30 +63,50 @@ class SilenceInfo:
 
 # ===== 유틸 =====
 def hhmmss_to_seconds(value: str) -> float:
+    """HH:MM:SS 또는 HH:MM:SS:mmm 형식을 초(float)로 변환합니다."""
     parts = value.strip().split(":")
-    if len(parts) != 3:
-        raise ValueError(f"HH:MM:SS 형식이 아닙니다: {value}")
-    hours, minutes, seconds = map(int, parts)
-    return hours * 3600 + minutes * 60 + seconds
+    if len(parts) == 4:
+        h, m, s, ms = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+        return h * 3600 + m * 60 + s + ms / 1000
+    elif len(parts) == 3:
+        h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+        return h * 3600 + m * 60 + s
+    raise ValueError(f"타임스탬프 형식 오류: {value}")
 
 
 def seconds_to_hhmmss(seconds: float) -> str:
-    total_seconds = max(0, int(round(seconds)))
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    secs = total_seconds % 60
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    """초(float)를 HH:MM:SS:mmm 형식 문자열로 변환합니다."""
+    seconds = max(0.0, seconds)
+    total_ms = int(round(seconds * 1000))
+    ms = total_ms % 1000
+    total_s = total_ms // 1000
+    h = total_s // 3600
+    m = (total_s % 3600) // 60
+    s = total_s % 60
+    return f"{h:02d}:{m:02d}:{s:02d}:{ms:03d}"
 
 
 def parse_silence_summary(path: Path) -> Dict[int, SilenceInfo]:
+    """scene 기반의 silence_summary.txt를 파싱합니다.
+
+    형식 예시:
+        silence001 (00:00:00:000 ~ 00:00:35:000)
+        scene001 (00:00:02:211 ~ 00:00:12:095)
+        scene002 (00:00:12:095 ~ 00:00:19:561)
+    """
     if not path.exists():
         raise FileNotFoundError(f"무음 요약 파일이 없습니다: {path}")
 
     silences: Dict[int, SilenceInfo] = {}
-    current_id: Optional[int] = None
+    current_silence_id: Optional[int] = None
+    current_scene_list: List[SceneInfo] = []
 
-    silence_re = re.compile(r"무음구간\s*(\d+)\.\s*\((\d{2}:\d{2}:\d{2})\s*~\s*(\d{2}:\d{2}:\d{2})\)")
-    cut_re = re.compile(r"장면전환\s*(\d+)\s*(\d{2}:\d{2}:\d{2})")
+    silence_re = re.compile(
+        r"silence(\d{3})\s*\((\d{2}:\d{2}:\d{2}:\d{3})\s*~\s*(\d{2}:\d{2}:\d{2}:\d{3})\)"
+    )
+    scene_re = re.compile(
+        r"scene(\d{3})\s*\((\d{2}:\d{2}:\d{2}:\d{3})\s*~\s*(\d{2}:\d{2}:\d{2}:\d{3})\)"
+    )
 
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
@@ -97,6 +115,9 @@ def parse_silence_summary(path: Path) -> Dict[int, SilenceInfo]:
 
         silence_match = silence_re.match(line)
         if silence_match:
+            if current_silence_id is not None:
+                silences[current_silence_id].scenes = current_scene_list
+
             silence_id = int(silence_match.group(1))
             start_seconds = hhmmss_to_seconds(silence_match.group(2))
             end_seconds = hhmmss_to_seconds(silence_match.group(3))
@@ -105,15 +126,24 @@ def parse_silence_summary(path: Path) -> Dict[int, SilenceInfo]:
                 start_seconds=start_seconds,
                 end_seconds=end_seconds,
             )
-            current_id = silence_id
+            current_silence_id = silence_id
+            current_scene_list = []
             continue
 
-        if line == "장면전환 NULL":
-            continue
+        scene_match = scene_re.match(line)
+        if scene_match and current_silence_id is not None:
+            scene_id = int(scene_match.group(1))
+            window_start = hhmmss_to_seconds(scene_match.group(2))
+            window_end = hhmmss_to_seconds(scene_match.group(3))
+            current_scene_list.append(SceneInfo(
+                scene_id=scene_id,
+                window_start_abs=window_start,
+                window_end_abs=window_end,
+                window_duration=window_end - window_start,
+            ))
 
-        cut_match = cut_re.match(line)
-        if cut_match and current_id is not None:
-            silences[current_id].scene_cut_seconds.append(hhmmss_to_seconds(cut_match.group(2)))
+    if current_silence_id is not None:
+        silences[current_silence_id].scenes = current_scene_list
 
     print(f"[입력] 무음구간 요약 파싱 완료: {len(silences)}개")
     return silences
@@ -156,10 +186,12 @@ def parse_stt_summary(path: Path, silences: Dict[int, SilenceInfo]) -> None:
 
 
 def collect_scene_images(silences: Dict[int, SilenceInfo], image_dir: Path) -> None:
-    # 파일명 예시: silence_001_cut01_before.jpg / silence_001_cut01_after.jpg
-    image_map: Dict[Tuple[int, int], Dict[str, Path]] = {}
-    collected_image_count = 0
-    image_re = re.compile(r"silence_(\d+)_cut(\d+)_(before|after)\.(jpg|jpeg|png|webp)$", re.IGNORECASE)
+    """silence{NNN}_scene{NNN}_cut{NN}.jpg 파일을 각 SceneInfo에 연결합니다."""
+    image_re = re.compile(
+        r"silence(\d{3})_scene(\d{3})_cut(\d{2})\.(jpg|jpeg|png|webp)$", re.IGNORECASE
+    )
+    image_map: Dict[Tuple[int, int], List[Tuple[int, Path]]] = {}
+    count = 0
 
     for file_path in image_dir.iterdir():
         if not file_path.is_file() or file_path.suffix.lower() not in CONTEXT_IMAGE_EXTENSIONS:
@@ -169,56 +201,43 @@ def collect_scene_images(silences: Dict[int, SilenceInfo], image_dir: Path) -> N
             continue
         silence_id = int(match.group(1))
         scene_id = int(match.group(2))
-        side = match.group(3).lower()
-        image_map.setdefault((silence_id, scene_id), {})[side] = file_path
-        collected_image_count += 1
+        cut_num = int(match.group(3))
+        image_map.setdefault((silence_id, scene_id), []).append((cut_num, file_path))
+        count += 1
 
     for silence in silences.values():
-        boundaries = [silence.start_seconds] + silence.scene_cut_seconds + [silence.end_seconds]
-        scenes: List[SceneInfo] = []
-        for idx in range(len(boundaries) - 1):
-            scene_id = idx + 1
-            start_seconds = boundaries[idx]
-            end_seconds = boundaries[idx + 1]
-            duration_seconds = max(0.0, end_seconds - start_seconds)
-            pair = image_map.get((silence.silence_id, scene_id), {})
-            scenes.append(
-                SceneInfo(
-                    scene_id=scene_id,
-                    start_seconds=start_seconds,
-                    end_seconds=end_seconds,
-                    duration_seconds=duration_seconds,
-                    cut_time_seconds=silence.scene_cut_seconds[idx] if idx < len(silence.scene_cut_seconds) else None,
-                    before_image=pair.get("before"),
-                    after_image=pair.get("after"),
-                )
-            )
-        silence.scenes = scenes
-    total_scene_count = sum(len(s.scenes) for s in silences.values())
-    print(f"[입력] 키프레임 이미지 {collected_image_count}개, 장면 {total_scene_count}개 구성 완료")
+        for scene in silence.scenes:
+            key = (silence.silence_id, scene.scene_id)
+            if key in image_map:
+                sorted_images = sorted(image_map[key], key=lambda x: x[0])
+                scene.images = [path for _, path in sorted_images]
+
+    print(f"[입력] 키프레임 이미지 {count}개 로드 완료")
 
 
 def build_prompt(silences: Dict[int, SilenceInfo]) -> str:
     prompt_lines: List[str] = []
     prompt_lines.extend([
         "당신은 시각장애인을 위한 전문 오디오 화면해설(Audio Description) 작가입니다.",
-        "입력으로 제공되는 무음구간 정보, 전후 대사 맥락, 그리고 각 장면의 before/after 키프레임 이미지를 분석하여 장면별 화면해설을 작성하십시오.",
-        "모든 무음구간을 한 번에 분석하되, 결과는 반드시 구간별/장면별로 구분해서 출력하십시오.",
+        "각 scene의 키프레임 이미지를 시간순으로 보고 해설 대본을 작성합니다.",
+        "해설 오디오는 각 scene의 window_start(첫 장면전환 시각) 직후부터 재생됩니다.",
         "",
         "[핵심 규칙]",
-        "1. 오직 무음구간 내부의 시각 정보만 묘사합니다.",
-        "2. 전후 대사는 행동의 이유를 추론하는 참고용으로만 사용하고, 출력 문장에 직접 쓰지 않습니다.",
+        "1. 제공된 키프레임 이미지들은 시간순으로 정렬되어 있습니다.",
+        "   - Scene 내에 각 장면이 순서대로 제공됩니다.",
+        "   - 이미지 순서를 따라 장면 변화를 파악하고 해설을 작성합니다.",
+        "2. 전후 대사는 행동 추론 참고용으로만 사용하고, 출력 문장에 직접 쓰지 않습니다.",
         "3. 감정 해석, 소리 묘사, 추측성 표현은 금지합니다.",
-        "4. 장면 길이보다 최소 1초 이상 짧게 읽히도록 간결하게 작성합니다.",
-        "5. 너무 짧아서 해설이 불가능한 장면은 text를 비우지 말고 status=skip, reason에 짧은 사유를 적습니다.",
-        "6. 해설 가능 장면은 status=ok, reason은 빈 문자열로 둡니다.",
-        "7. 출력은 반드시 CSV만 반환합니다. 코드블록, 설명문, 마크다운을 절대 추가하지 않습니다.",
+        f"4. TTS 발화 속도는 초당 약 {TTS_SYLLABLES_PER_SECOND}음절입니다.",
+        f"   window_duration에서 {TTS_MARGIN_SECONDS}초를 뺀 시간 안에 읽힐 분량으로 작성합니다.",
+        "   (예: window 8.0초 → 최대 약 30음절 / window 5.0초 → 최대 약 18음절)",
+        "5. 출력은 반드시 CSV만 반환합니다. 코드블록, 설명문, 마크다운을 절대 추가하지 않습니다.",
         "",
         "[출력 CSV 스키마]",
-        "silence_id,scene_id,start_time,end_time,status,reason,text",
-        "- start_time, end_time: 원본 영상 기준 HH:MM:SS",
-        "- status: ok 또는 skip",
-        "- reason: skip인 경우만 짧게 작성, 아니면 빈 문자열",
+        "silence_id,scene_id,window_start,window_end,text",
+        "- scene_id: 해당 silence 내 scene 번호 (숫자만, 예: 1, 2, 3)",
+        "- window_start: scene의 첫 장면전환 시각 (HH:MM:SS:mmm)",
+        "- window_end: 다음 scene의 첫 장면전환 시각 또는 silence 끝 (HH:MM:SS:mmm)",
         "- text: TTS에 바로 넣을 수 있는 평어체 한 문장 또는 두 문장",
         "",
         "[입력 데이터]",
@@ -226,10 +245,11 @@ def build_prompt(silences: Dict[int, SilenceInfo]) -> str:
 
     for silence_id in sorted(silences):
         silence = silences[silence_id]
-        prompt_lines.append(f"## 무음구간 {silence.silence_id}")
+        prompt_lines.append(f"## silence{silence.silence_id:03d}")
         prompt_lines.append(
             f"구간: {seconds_to_hhmmss(silence.start_seconds)} ~ {seconds_to_hhmmss(silence.end_seconds)}"
         )
+
         if silence.context_before_lines:
             prompt_lines.append("[전 대사]")
             prompt_lines.extend(silence.context_before_lines)
@@ -242,23 +262,22 @@ def build_prompt(silences: Dict[int, SilenceInfo]) -> str:
         else:
             prompt_lines.append("[후 대사]\n대사 없음")
 
-        if silence.scene_cut_seconds:
-            prompt_lines.append(
-                "장면전환 시각: " + ", ".join(seconds_to_hhmmss(t) for t in silence.scene_cut_seconds)
-            )
+        if not silence.scenes:
+            prompt_lines.append("[장면전환 없음 — 해설 불필요]")
         else:
-            prompt_lines.append("장면전환 시각: 없음")
-
-        prompt_lines.append("[장면 목록]")
-        for scene in silence.scenes:
-            prompt_lines.append(
-                f"- scene_id={scene.scene_id}, "
-                f"start={seconds_to_hhmmss(scene.start_seconds)}, "
-                f"end={seconds_to_hhmmss(scene.end_seconds)}, "
-                f"duration={scene.duration_seconds:.2f}s, "
-                f"before_image={scene.before_image.name if scene.before_image else '없음'}, "
-                f"after_image={scene.after_image.name if scene.after_image else '없음'}"
-            )
+            prompt_lines.append("[scene 목록]")
+            for scene in silence.scenes:
+                max_narration_sec = max(0.0, scene.window_duration - TTS_MARGIN_SECONDS)
+                max_syllables = int(max_narration_sec * TTS_SYLLABLES_PER_SECOND)
+                prompt_lines.append(
+                    f"- scene{scene.scene_id:03d}: "
+                    f"window={seconds_to_hhmmss(scene.window_start_abs)}~{seconds_to_hhmmss(scene.window_end_abs)}, "
+                    f"window_duration={scene.window_duration:.3f}s, "
+                    f"이미지 {len(scene.images)}장, "
+                    f"최대음절={max_syllables}자"
+                )
+                for img in scene.images:
+                    prompt_lines.append(f"  * {img.name}")
         prompt_lines.append("")
 
     prompt_lines.append("반드시 CSV 헤더부터 출력하십시오.")
@@ -268,35 +287,44 @@ def build_prompt(silences: Dict[int, SilenceInfo]) -> str:
 
 
 def build_multimodal_contents(prompt: str, silences: Dict[int, SilenceInfo], client) -> Tuple[List[object], List[str]]:
+    """프롬프트 텍스트 뒤에 scene별로 [scene 라벨 텍스트 → 해당 이미지들]을 교차 배치합니다.
+    이렇게 하면 Gemini가 어떤 이미지가 어떤 scene에 속하는지 정확히 알 수 있습니다."""
     contents: List[object] = [prompt]
     uploaded_file_names: List[str] = []
 
-    image_paths: List[Path] = []
-    for silence_id in sorted(silences):
-        silence = silences[silence_id]
-        for scene in silence.scenes:
-            if scene.before_image and scene.before_image.exists():
-                image_paths.append(scene.before_image)
-            if scene.after_image and scene.after_image.exists():
-                image_paths.append(scene.after_image)
-
-    total_images = len(image_paths)
+    # 총 이미지 수 미리 계산 (진행률 표시용)
+    total_images = sum(
+        1 for silence in silences.values()
+        for scene in silence.scenes
+        for img_path in scene.images if img_path.exists()
+    )
     print(f"[프롬프트] Files API 업로드 시작: 총 이미지 {total_images}개")
     report_progress(45, f"Gemini에 키프레임 이미지 {total_images}장 업로드 시작...")
 
-    for idx, image_path in enumerate(image_paths, start=1):
-        # Map upload progress to 45% ~ 58% range
-        upload_pct = 45 + int((idx / total_images) * 13) if total_images > 0 else 45
-        report_progress(upload_pct, f"이미지 업로드 중 ({idx}/{total_images}): {image_path.name}")
-        print(f"[Files API] 업로드 중 ({idx}/{total_images}): {image_path.name}")
-        uploaded_file = upload_gemini_file(client, image_path)
-        contents.append(uploaded_file)
-        uploaded_file_names.append(uploaded_file.name)
-        print(f"[Files API] 업로드 완료 ({idx}/{total_images}): {image_path.name} -> {uploaded_file.name}")
+    img_idx = 0
+    for silence_id in sorted(silences):
+        silence = silences[silence_id]
+        for scene in silence.scenes:
+            existing_images = [p for p in scene.images if p.exists()]
+            if not existing_images:
+                continue
+            # scene 라벨을 텍스트로 삽입하여 이미지 구분
+            contents.append(f"[silence{silence.silence_id:03d} scene{scene.scene_id:03d} 이미지]")
+            for image_path in existing_images:
+                img_idx += 1
+                upload_pct = 45 + int((img_idx / total_images) * 13) if total_images > 0 else 45
+                report_progress(upload_pct, f"이미지 업로드 중 ({img_idx}/{total_images}): {image_path.name}")
+                print(f"[Files API] 업로드 중 ({img_idx}/{total_images}): {image_path.name}")
+                uploaded_file = upload_gemini_file(client, image_path)
+                contents.append(uploaded_file)
+                uploaded_file_names.append(uploaded_file.name)
+                print(f"[Files API] 업로드 완료 ({img_idx}/{total_images}): {image_path.name} -> {uploaded_file.name}")
 
     report_progress(58, "이미지 업로드 완료! Gemini AI 응답 대기 중...")
-    print(f"[프롬프트] Files API 업로드 완료: 텍스트 1개 + 원격 이미지 {total_images}개")
+    print(f"[프롬프트] Files API 업로드 완료: scene별 교차 배치, 원격 이미지 {total_images}개")
     return contents, uploaded_file_names
+
+
 def upload_gemini_file(client, file_path: Path):
     """단일 이미지를 Gemini Files API에 업로드하고 ACTIVE 상태가 될 때까지 대기합니다."""
     uploaded_file = client.files.upload(file=str(file_path))
@@ -331,7 +359,6 @@ def delete_uploaded_gemini_files(client, file_names: List[str]) -> None:
 
     deleted_count = 0
     failed_count = 0
-
     for file_name in file_names:
         try:
             client.files.delete(name=file_name)
@@ -340,17 +367,6 @@ def delete_uploaded_gemini_files(client, file_names: List[str]) -> None:
             failed_count += 1
 
     print(f"[Gemini] 요청 후 업로드 파일 정리 완료: 삭제 {deleted_count}개, 실패 {failed_count}개")
-
-
-def _guess_mime_type(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix in {".jpg", ".jpeg"}:
-        return "image/jpeg"
-    if suffix == ".png":
-        return "image/png"
-    if suffix == ".webp":
-        return "image/webp"
-    raise ValueError(f"지원하지 않는 이미지 확장자입니다: {path}")
 
 
 def strip_code_fence(text: str) -> str:
@@ -371,7 +387,7 @@ def normalize_csv_text(csv_text: str) -> str:
     if not rows:
         raise ValueError("Gemini 응답에서 CSV를 찾지 못했습니다.")
 
-    expected_header = ["silence_id", "scene_id", "start_time", "end_time", "status", "reason", "text"]
+    expected_header = ["silence_id", "scene_id", "window_start", "window_end", "text"]
     header = [cell.strip() for cell in rows[0]]
     if header != expected_header:
         raise ValueError(f"CSV 헤더가 예상과 다릅니다: {header}")
@@ -385,10 +401,14 @@ def normalize_csv_text(csv_text: str) -> str:
             continue
         normalized = (row + [""] * len(expected_header))[: len(expected_header)]
         normalized = [cell.strip() for cell in normalized]
+        # silence_id, scene_id에 'silence001', 'scene01' 같은 접두사가 붙어 있으면 숫자만 추출
+        for col_idx in (0, 1):
+            digits = re.sub(r'\D', '', normalized[col_idx])
+            if digits:
+                normalized[col_idx] = str(int(digits))
         writer.writerow(normalized)
 
     return output.getvalue().strip() + "\n"
-
 
 
 def csv_to_txt(csv_text: str) -> str:
@@ -398,18 +418,13 @@ def csv_to_txt(csv_text: str) -> str:
     for row in reader:
         silence_id = row["silence_id"]
         scene_id = row["scene_id"]
-        start_time = row["start_time"]
-        end_time = row["end_time"]
-        status = row["status"]
-        reason = row["reason"]
+        window_start = row["window_start"]
+        window_end = row["window_end"]
         text = row["text"]
 
-        blocks.append(f"[무음구간{silence_id} 장면{scene_id}]")
-        blocks.append(f"구간 {start_time} ~ {end_time}")
-        if status == "skip":
-            blocks.append(f"생성 불가 ({reason or '시간 부족'})")
-        else:
-            blocks.append(text)
+        blocks.append(f"[silence{int(silence_id):03d} scene{int(scene_id):03d}]")
+        blocks.append(f"window {window_start} ~ {window_end}")
+        blocks.append(text)
         blocks.append("")
 
     return "\n".join(blocks).strip() + "\n"
@@ -432,7 +447,6 @@ def cleanup_gemini_files(client) -> None:
             file_name = getattr(file_obj, "name", None)
             if not file_name:
                 continue
-
             try:
                 client.files.delete(name=file_name)
                 deleted_count += 1
@@ -441,9 +455,7 @@ def cleanup_gemini_files(client) -> None:
                 failed_count += 1
                 print(f"[Gemini] 이전 업로드 파일 삭제 실패: {file_name} | {exc}")
 
-        print(
-            f"[Gemini] Files API 사전 정리 완료: 조회 {listed_count}개, 삭제 {deleted_count}개, 실패 {failed_count}개"
-        )
+        print(f"[Gemini] Files API 사전 정리 완료: 조회 {listed_count}개, 삭제 {deleted_count}개, 실패 {failed_count}개")
     except Exception as exc:
         print(f"[Gemini] Files API 목록 조회/정리 실패: {exc}")
 
@@ -457,58 +469,51 @@ def call_gemini(prompt: str, silences: Dict[int, SilenceInfo]) -> str:
     cleanup_gemini_files(client)
     contents, uploaded_file_names = build_multimodal_contents(prompt, silences, client)
 
-    # Gemini API 호출 타임아웃 (초)
-    GEMINI_TIMEOUT_SECONDS = 120  # 2분
-
-    # 시도할 모델 목록 (primary → fallback)
-    models_to_try = [GEMINI_MODEL, "gemini-2.0-flash"]
-    max_retries = 3
+    GEMINI_TIMEOUT_SECONDS = 180
+    max_retries = 5
     last_error = None
 
     try:
-        for model_name in models_to_try:
-            for attempt in range(1, max_retries + 1):
-                try:
-                    report_progress(58, f"Gemini AI 응답 대기 중... (모델: {model_name}, 시도 {attempt}/{max_retries})")
-                    print(f"[Gemini] 요청 시작: model={model_name} (시도 {attempt}/{max_retries}, 타임아웃 {GEMINI_TIMEOUT_SECONDS}초)")
+        for attempt in range(1, max_retries + 1):
+            try:
+                report_progress(58, f"Gemini AI 응답 대기 중... (시도 {attempt}/{max_retries})")
+                print(f"[Gemini] 요청 시작: model={GEMINI_MODEL} (시도 {attempt}/{max_retries}, 타임아웃 {GEMINI_TIMEOUT_SECONDS}초)")
 
-                    # 별도 스레드에서 API 호출하고 2분 내 응답 없으면 타임아웃
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(
-                            client.models.generate_content,
-                            model=model_name,
-                            contents=contents,
-                            config=types.GenerateContentConfig(
-                                temperature=0.2,
-                                response_mime_type="text/plain",
-                            ),
-                        )
-                        try:
-                            response = future.result(timeout=GEMINI_TIMEOUT_SECONDS)
-                        except concurrent.futures.TimeoutError:
-                            raise TimeoutError(f"Gemini API 응답 {GEMINI_TIMEOUT_SECONDS}초 타임아웃 (503 UNAVAILABLE)")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        client.models.generate_content,
+                        model=GEMINI_MODEL,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            temperature=0.2,
+                            response_mime_type="text/plain",
+                        ),
+                    )
+                    try:
+                        response = future.result(timeout=GEMINI_TIMEOUT_SECONDS)
+                    except concurrent.futures.TimeoutError:
+                        raise TimeoutError(f"Gemini API 응답 {GEMINI_TIMEOUT_SECONDS}초 타임아웃 (503 UNAVAILABLE)")
 
-                    print("[Gemini] 응답 수신 완료")
-                    if not response.text:
-                        raise ValueError("Gemini 응답 텍스트가 비어 있습니다.")
-                    return response.text
+                print("[Gemini] 응답 수신 완료")
+                if not response.text:
+                    raise ValueError("Gemini 응답 텍스트가 비어 있습니다.")
+                return response.text
 
-                except Exception as e:
-                    last_error = e
-                    error_str = str(e)
-                    is_retryable = any(kw in error_str for kw in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "INTERNAL", "Timeout", "타임아웃"])
-                    if is_retryable and attempt < max_retries:
-                        wait_sec = 10 * attempt  # 10초, 20초, 30초
-                        report_progress(58, f"서버 과부하/타임아웃! {wait_sec}초 후 재시도... ({attempt}/{max_retries})")
-                        print(f"[Gemini] 재시도 사유: ({error_str[:80]}...). {wait_sec}초 후 재시도합니다.")
-                        time.sleep(wait_sec)
-                    elif is_retryable:
-                        print(f"[Gemini] 모델 {model_name} 최대 재시도 초과. 다음 모델로 전환합니다.")
-                        break  # 다음 모델로
-                    else:
-                        raise  # 재시도 불가능한 에러는 바로 raise
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+                is_retryable = any(kw in error_str for kw in [
+                    "503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "INTERNAL", "Timeout", "타임아웃"
+                ])
+                if is_retryable and attempt < max_retries:
+                    wait_sec = 30 * attempt
+                    report_progress(58, f"서버 과부하/타임아웃! {wait_sec}초 후 재시도... ({attempt}/{max_retries})")
+                    print(f"[Gemini] 재시도 사유: ({error_str[:80]}...). {wait_sec}초 후 재시도합니다.")
+                    time.sleep(wait_sec)
+                else:
+                    raise
 
-        raise last_error  # 모든 모델/재시도 실패
+        raise last_error
     finally:
         delete_uploaded_gemini_files(client, uploaded_file_names)
 
@@ -518,7 +523,9 @@ def load_all_inputs() -> Dict[int, SilenceInfo]:
     silences = parse_silence_summary(SILENCE_SUMMARY_PATH)
     parse_stt_summary(STT_SUMMARY_PATH, silences)
     collect_scene_images(silences, OUTPUT_DIR)
-    print("[1/4] 입력 파일 파싱 완료")
+    total_scenes = sum(len(s.scenes) for s in silences.values())
+    total_images = sum(len(scene.images) for s in silences.values() for scene in s.scenes)
+    print(f"[1/4] 입력 파일 파싱 완료: 총 scene {total_scenes}개, 이미지 {total_images}개")
     return silences
 
 
@@ -542,11 +549,9 @@ def main() -> None:
     print(f"[4/4] Gemini 호출 완료: 응답 {len(raw_response)}자")
 
     report_progress(60, "AI 응답 후처리 및 대본 저장 중...")
-    print("[저장] 원본 응답 저장 시작")
     LLM_RAW_OUTPUT_PATH.write_text(raw_response, encoding="utf-8")
     print(f"[저장] 원본 응답 저장 완료: {LLM_RAW_OUTPUT_PATH}")
 
-    print("[저장] 응답 후처리 및 파일 저장 시작")
     normalized_csv = normalize_csv_text(raw_response)
     LLM_CSV_OUTPUT_PATH.write_text(normalized_csv, encoding="utf-8")
     LLM_TXT_OUTPUT_PATH.write_text(csv_to_txt(normalized_csv), encoding="utf-8")

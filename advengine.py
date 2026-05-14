@@ -38,8 +38,9 @@ MIN_SCENE_DURATION = 3.0
 # 무음 구간 전후 음원 추출 시 추출할 길이
 CONTEXT_WINDOW = 15.0
 CONTEXT_AUDIO_DIR = os.path.join(OUTPUT_DIR, "context_audio")
-WHISPER_CPP_BIN = "/Users/yujunlee/whisper.cpp/build/bin/whisper-cli"
-WHISPER_MODEL = "/Users/yujunlee/whisper.cpp/models/ggml-small.bin"
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WHISPER_CPP_BIN = os.getenv("WHISPER_CPP_BIN", os.path.join(_BASE_DIR, "whisper.cpp", "build", "bin", "whisper-cli"))
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", os.path.join(_BASE_DIR, "whisper.cpp", "models", "ggml-small.bin"))
 STT_OUTPUT_FILE = os.path.join(OUTPUT_DIR, "stt_summary.txt")
 
 # 하드웨어 가속 설정 (True: CPU 강제 사용, False: 가능하면 GPU 사용)
@@ -160,9 +161,6 @@ def write_silence_summary(silence_summaries):
     print(f"\n무음 구간 요약이 파일로 저장되었습니다: {output_path}")
 
 
-
-
-
 def parse_whisper_output(stdout_text):
     # whisper.cpp 표준 출력에서 [start --> end] text 형식 파싱
     segments = []
@@ -188,7 +186,6 @@ def parse_whisper_output(stdout_text):
         })
 
     return segments
-
 
 
 def transcribe_audio_with_whisper(audio_file):
@@ -217,7 +214,6 @@ def transcribe_audio_with_whisper(audio_file):
         return []
 
     return parse_whisper_output(result.stdout)
-
 
 
 def write_stt_summary(silence_summaries):

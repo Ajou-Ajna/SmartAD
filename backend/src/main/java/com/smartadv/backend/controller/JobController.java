@@ -55,6 +55,10 @@ public class JobController {
             contentType = "video/mp4";
         } else if (localPathStr.endsWith(".mp3")) {
             contentType = "audio/mpeg";
+        } else if (localPathStr.endsWith(".m4a")) {
+            contentType = "audio/mp4";
+        } else if (localPathStr.endsWith(".wav")) {
+            contentType = "audio/wav";
         }
 
         HttpHeaders headers = new HttpHeaders();

@@ -9,8 +9,8 @@ const View: FunctionComponent = () => {
   const location = useLocation();
   const audioUrlFromBackend = (location.state as any)?.audioUrl;
   const videoUrlFromBackend = (location.state as any)?.videoUrl;
-  const finalAudioUrl = audioUrlFromBackend ? `http://localhost:8080/api/storage/stream?url=${encodeURIComponent(audioUrlFromBackend)}` : "/dummy_audio.wav";
-  const finalVideoUrl = videoUrlFromBackend ? `http://localhost:8080/api/storage/stream?url=${encodeURIComponent(videoUrlFromBackend)}` : "";
+  const finalAudioUrl = audioUrlFromBackend ? `/api/storage/stream?url=${encodeURIComponent(audioUrlFromBackend)}` : "/dummy_audio.wav";
+  const finalVideoUrl = videoUrlFromBackend ? `/api/storage/stream?url=${encodeURIComponent(videoUrlFromBackend)}` : "";
   
   const mediaRef = useRef<HTMLVideoElement>(null);
   const [audioProgress, setAudioProgress] = useState(0);
