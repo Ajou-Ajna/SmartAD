@@ -30,3 +30,9 @@ smartadv:
   engine:
     root-dir: ${SMARTADV_ENGINE_ROOT_DIR:..}
     command: ${SMARTADV_ENGINE_COMMAND:poetry run python}
+  aws:
+    access-key: ${AWS_ACCESS_KEY_ID:}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:}
+    region: ${AWS_REGION:ap-northeast-2}
+    s3:
+      bucket: ${AWS_S3_BUCKET_NAME:}
