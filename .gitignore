@@ -36,3 +36,5 @@ Thumbs.db
 /mock-s3-storage/
 
 *.pem
+
+DEPLOY_EC2.md
