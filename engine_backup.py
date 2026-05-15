@@ -51,6 +51,7 @@ CONTEXT_AUDIO_DIR = os.path.join(OUTPUT_DIR, "context_audio")
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WHISPER_CPP_BIN = os.getenv("WHISPER_CPP_BIN", os.path.join(_BASE_DIR, "whisper.cpp", "build", "bin", "whisper-cli"))
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", os.path.join(_BASE_DIR, "whisper.cpp", "models", "ggml-small.bin"))
+SMARTADV_ENABLE_STT = os.getenv("SMARTADV_ENABLE_STT", "1") == "1"
 STT_OUTPUT_FILE = os.path.join(OUTPUT_DIR, "stt_summary.txt")
 
 # 하드웨어 가속 설정 (True: CPU 강제 사용, False: 가능하면 GPU 사용)
@@ -221,6 +222,15 @@ def transcribe_audio_with_whisper(audio_file):
     # whisper.cpp CLI를 호출해 단일 음원 파일을 전사
     if not os.path.exists(audio_file):
         return []
+    if not SMARTADV_ENABLE_STT:
+        print("[STT] SMARTADV_ENABLE_STT=0, whisper.cpp transcription skipped.")
+        return []
+    if not os.path.exists(WHISPER_CPP_BIN):
+        print(f"[STT] whisper.cpp binary not found, transcription skipped: {WHISPER_CPP_BIN}")
+        return []
+    if not os.path.exists(WHISPER_MODEL):
+        print(f"[STT] whisper.cpp model not found, transcription skipped: {WHISPER_MODEL}")
+        return []
 
     cmd = [
         WHISPER_CPP_BIN,
@@ -229,13 +239,17 @@ def transcribe_audio_with_whisper(audio_file):
         "-l", "ko"
     ]
 
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding='utf-8'
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8'
+        )
+    except OSError as exc:
+        print(f"[STT] whisper.cpp execution failed, transcription skipped: {exc}")
+        return []
 
     if result.returncode != 0:
         print(f"[경고] whisper.cpp 전사 실패: {audio_file}")

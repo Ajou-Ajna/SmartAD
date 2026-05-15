@@ -1,13 +1,19 @@
 import { FunctionComponent } from "react";
+import { useLocation } from "react-router-dom";
 import NavigationRail1 from "../components/NavigationRail1";
 import { useAppContext } from "../context/AppContext";
 
 const Download: FunctionComponent = () => {
   const { currentItem } = useAppContext();
+  const location = useLocation();
+  const audioUrlFromBackend = (location.state as any)?.audioUrl;
+  const downloadUrl = audioUrlFromBackend
+    ? `/api/storage/stream?url=${encodeURIComponent(audioUrlFromBackend)}`
+    : "/dummy_audio.wav";
 
   const handleDownload = () => {
     const link = document.createElement("a");
-    link.href = "/dummy_audio.wav";
+    link.href = downloadUrl;
     link.download = currentItem?.audioFileName || "smartadv_audio.wav";
     document.body.appendChild(link);
     link.click();
@@ -69,7 +75,7 @@ const Download: FunctionComponent = () => {
               <div className="self-stretch text-[14px] font-medium font-[Inter] text-schemes-on-surface-variant">
                 오디오 미리듣기
               </div>
-              <audio className="w-full" style={{ maxWidth: "640px" }} controls src="/dummy_audio.wav">
+              <audio className="w-full" style={{ maxWidth: "640px" }} controls src={downloadUrl}>
                 브라우저가 오디오를 지원하지 않습니다.
               </audio>
             </div>

@@ -18,6 +18,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -35,6 +38,9 @@ public class WorkerClientService {
 
     @Value("${smartadv.engine.root-dir:..}")
     private String engineRootDir;
+
+    @Value("${smartadv.engine.command:poetry run python}")
+    private String engineCommand;
 
     // Pattern to match PROGRESS:XX:message from Python stdout
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("^PROGRESS:(\\d+):(.+)$");
@@ -124,14 +130,17 @@ public class WorkerClientService {
     private int runPythonProcess(String scriptName, String smartadvInput, String smartadvOutput, Long jobId) throws Exception {
         // SmartADV Python engine root directory (configurable via smartadv.engine.root-dir)
         Path projectRoot = Paths.get(engineRootDir).toAbsolutePath().normalize();
-        log.info("Executing poetry run python {} (cwd={})", scriptName, projectRoot);
+        List<String> command = new ArrayList<>(parseEngineCommand(engineCommand));
+        command.add(scriptName);
+        log.info("Executing {} (cwd={})", String.join(" ", command), projectRoot);
 
-        ProcessBuilder pb = new ProcessBuilder("poetry", "run", "python", scriptName);
+        ProcessBuilder pb = new ProcessBuilder(command);
         pb.directory(projectRoot.toFile());
 
         // Pass dynamic IO environment variables
         pb.environment().put("SMARTADV_INPUT", smartadvInput);
         pb.environment().put("SMARTADV_OUTPUT", smartadvOutput);
+        pb.environment().put("PYTHONUNBUFFERED", "1");
 
         pb.redirectErrorStream(true);
         Process process = pb.start();
@@ -166,5 +175,11 @@ public class WorkerClientService {
             log.error("[{}] 비정상 종료 (exit code {}). 마지막 출력:\n{}", scriptName, exitCode, lastLines);
         }
         return exitCode;
+    }
+
+    private List<String> parseEngineCommand(String command) {
+        return Arrays.stream(command.trim().split("\\s+"))
+                .filter(part -> !part.isBlank())
+                .toList();
     }
 }
