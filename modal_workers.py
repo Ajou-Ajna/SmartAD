@@ -14,9 +14,11 @@ import modal
 
 app = modal.App("smartadv")
 
-# 모델 캐시 볼륨: torch.hub(silero-vad)와 whisper 모델을 콜드 스타트마다
-# 재다운로드하지 않도록 /root/.cache 를 영속 볼륨에 마운트합니다.
+# 모델 캐시 볼륨: whisper 모델을 콜드 스타트마다 재다운로드하지 않기 위한 영속 볼륨.
+# /root/.cache 는 이미지 빌드 중 pip이 파일을 써서 비어있지 않으므로,
+# 이미지에서 건드리지 않는 빈 경로 /model-cache 에 마운트합니다.
 model_cache = modal.Volume.from_name("smartadv-model-cache", create_if_missing=True)
+CACHE_DIR = "/model-cache"
 
 # Modal 실행 환경 이미지
 # - ffmpeg : whisper가 오디오 디코딩에 내부적으로 사용
@@ -40,7 +42,7 @@ image = (
 @app.function(
     gpu="T4",
     image=image,
-    volumes={"/root/.cache": model_cache},
+    volumes={CACHE_DIR: model_cache},  # 이미지에서 비어있는 경로에 마운트
     timeout=120,   # 15초짜리 context audio 기준 충분
     retries=1,
 )
@@ -67,7 +69,8 @@ def run_stt(audio_bytes: bytes) -> list[dict]:
         tmp_path = f.name
 
     try:
-        model = whisper.load_model("small")   # Volume 캐시 → 재다운로드 없음
+        # download_root 를 볼륨 경로로 지정 → 재다운로드 없음
+        model = whisper.load_model("small", download_root=f"{CACHE_DIR}/whisper")
         result = model.transcribe(tmp_path, language="ko", task="transcribe")
     finally:
         os.unlink(tmp_path)
