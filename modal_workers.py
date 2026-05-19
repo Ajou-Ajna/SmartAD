@@ -37,14 +37,13 @@ image = (
 # ---------------------------------------------------------------------------
 
 @app.function(
-    gpu="T4",
     image=image,
     volumes={"/root/.cache": model_cache},
     timeout=600,   # 장편 영상 대응
     retries=1,
 )
 def run_vad(wav_bytes: bytes) -> list[dict]:
-    """Silero VAD를 GPU에서 실행합니다.
+    """Silero VAD를 실행합니다 (CPU 전용 모델).
 
     Args:
         wav_bytes: 16kHz 모노 WAV 파일의 바이트 (FFmpeg 추출 결과물).
@@ -75,10 +74,7 @@ def run_vad(wav_bytes: bytes) -> list[dict]:
         model="silero_vad",
         trust_repo=True,
     )
-    model = model.to("cuda")
     get_speech_timestamps = utils[0]
-
-    wav = wav.to("cuda")
 
     # 진폭 게이팅: engine_backup.py 원본과 동일한 -25 dB 임계값
     amplitude_limit = 10 ** (-25.0 / 20)

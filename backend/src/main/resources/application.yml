@@ -19,8 +19,9 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 500MB
-      max-request-size: 500MB
+      location: /opt/smartadv/storage/tmp
+      max-file-size: 2000MB
+      max-request-size: 2000MB
 
 smartadv:
   storage:
