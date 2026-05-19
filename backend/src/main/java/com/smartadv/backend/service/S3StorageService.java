@@ -134,6 +134,7 @@ public class S3StorageService implements StorageService {
                     .key(key)
                     .build();
 
+            java.nio.file.Files.deleteIfExists(destination);
             s3Client.getObject(getObjectRequest, ResponseTransformer.toFile(destination));
         } catch (Exception e) {
             throw new StorageException("Failed to download file from S3: " + s3Url, e);

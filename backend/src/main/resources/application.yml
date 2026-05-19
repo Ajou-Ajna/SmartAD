@@ -1,3 +1,6 @@
+logging:
+  level:
+    org.springframework.web: DEBUG
 spring:
   datasource:
     url: jdbc:h2:mem:smartadv
@@ -19,8 +22,9 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 500MB
-      max-request-size: 500MB
+      location: /opt/smartadv/storage/tmp
+      max-file-size: 2000MB
+      max-request-size: 2000MB
 
 smartadv:
   storage:
@@ -36,3 +40,4 @@ smartadv:
     region: ${AWS_REGION:ap-northeast-2}
     s3:
       bucket: ${AWS_S3_BUCKET_NAME:}
+    web: DEBUG
