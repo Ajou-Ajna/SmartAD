@@ -2,6 +2,7 @@ package com.smartadv.backend.controller;
 
 import com.smartadv.backend.repository.AnalysisJobRepository;
 import com.smartadv.backend.repository.ResultRepository;
+import com.smartadv.backend.service.WorkerClientService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -20,12 +21,22 @@ public class JobController {
 
     private final AnalysisJobRepository analysisJobRepository;
     private final ResultRepository resultRepository;
+    private final WorkerClientService workerClientService;
 
     @GetMapping("/jobs/{videoId}")
     public ResponseEntity<?> getJobStatus(@PathVariable Long videoId) {
         return analysisJobRepository.findByVideoId(videoId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @RequestMapping(value = "/jobs/{videoId}/cancel", method = {RequestMethod.DELETE, RequestMethod.POST})
+    public ResponseEntity<?> cancelJob(@PathVariable Long videoId) {
+        boolean cancelled = workerClientService.cancelJob(videoId);
+        if (cancelled) {
+            return ResponseEntity.ok().body("{\"message\":\"작업이 취소되었습니다.\"}");
+        }
+        return ResponseEntity.notFound().build();
     }
 
     @GetMapping("/results/video/{videoId}")

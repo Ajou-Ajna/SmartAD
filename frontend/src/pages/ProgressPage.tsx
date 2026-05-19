@@ -1,4 +1,4 @@
-import { FunctionComponent, useEffect, useState } from "react";
+import { FunctionComponent, useEffect, useState, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import NavigationRail1 from "../components/NavigationRail1";
 
@@ -10,9 +10,12 @@ const ProgressPage: FunctionComponent = () => {
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("영상 업로드 중...");
   const [statusDetail, setStatusDetail] = useState("");
+  const jobDoneRef = useRef(false);
+  const videoIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     const videoId = (location.state as any)?.videoId;
+    videoIdRef.current = videoId;
     if (!videoId) {
         setStatusText("업로드된 영상이 없습니다.");
         return;
@@ -31,6 +34,7 @@ const ProgressPage: FunctionComponent = () => {
           else if (job.status === "TTS_GENERATING") text = "해설 음성 합성 중...";
           else if (job.status === "DONE") text = "완료!";
           else if (job.status === "PENDING") text = "작업 대기 중...";
+          else if (job.status === "CANCELLED") text = "작업이 취소되었습니다.";
 
           setStatusText(text);
           if (job.statusDetail) {
@@ -38,6 +42,7 @@ const ProgressPage: FunctionComponent = () => {
           }
 
           if (job.status === "DONE") {
+            jobDoneRef.current = true;
             clearInterval(interval);
             // Get the resulting audio url
             const resultRes = await fetch(`/api/results/video/${videoId}`);
@@ -49,9 +54,10 @@ const ProgressPage: FunctionComponent = () => {
                videoUrl = resultData.mergedVideoPath;
             }
             setTimeout(() => navigate(destination, { state: { videoId, audioUrl, videoUrl } }), 600);
-          } else if (job.status === "FAILED") {
+          } else if (job.status === "FAILED" || job.status === "CANCELLED") {
+            jobDoneRef.current = true;
             clearInterval(interval);
-            setStatusText("작업 실패!");
+            if (job.status === "FAILED") setStatusText("작업 실패!");
             if (job.statusDetail) setStatusDetail(job.statusDetail);
           }
         }
@@ -62,6 +68,27 @@ const ProgressPage: FunctionComponent = () => {
 
     return () => clearInterval(interval);
   }, [navigate, destination, location.state]);
+
+  // 페이지 이탈 시 작업 취소 로직
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!jobDoneRef.current && videoIdRef.current) {
+        // sendBeacon은 탭이 닫혀도 브라우저가 확실히 전송해줌
+        navigator.sendBeacon(`/api/jobs/${videoIdRef.current}/cancel`);
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      // 컴포넌트 언마운트 시 (SPA 내 뒤로가기 등) 취소 호출
+      if (!jobDoneRef.current && videoIdRef.current) {
+        fetch(`/api/jobs/${videoIdRef.current}/cancel`, { method: "DELETE" }).catch(() => {});
+      }
+    };
+  }, []);
 
   const isDone = statusText === "완료!";
   const isFailed = statusText === "작업 실패!";

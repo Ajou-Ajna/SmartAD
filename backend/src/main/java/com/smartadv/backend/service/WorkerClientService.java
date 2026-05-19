@@ -21,6 +21,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,6 +47,9 @@ public class WorkerClientService {
 
     // Pattern to match PROGRESS:XX:message from Python stdout
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("^PROGRESS:(\\d+):(.+)$");
+
+    // 실행 중인 프로세스를 jobId로 추적 (취소 기능용)
+    private final ConcurrentHashMap<Long, Process> runningProcesses = new ConcurrentHashMap<>();
 
     @Async
     public void executeMockPipeline(Long videoId, AnalysisJob job) {
@@ -78,18 +82,21 @@ public class WorkerClientService {
             updateJobStatus(job.getId(), "PREPROCESSING", 1);
             updateJobDetail(job.getId(), "전처리 엔진 시작 중...", 1);
             int exitCode = runPythonProcess("engine_backup.py", smartadvInput, smartadvOutput, job.getId());
+            checkCancelled(job.getId());
             if (exitCode != 0) throw new RuntimeException("engine_backup.py failed with exit code " + exitCode);
 
             // 3. SCRIPT_GENERATING (34% ~ 66%)
             updateJobStatus(job.getId(), "SCRIPT_GENERATING", 34);
             updateJobDetail(job.getId(), "해설 대본 생성 엔진 시작 중...", 34);
             exitCode = runPythonProcess("LLM.py", smartadvInput, smartadvOutput, job.getId());
+            checkCancelled(job.getId());
             if (exitCode != 0) throw new RuntimeException("LLM.py failed with exit code " + exitCode);
 
             // 4. TTS_GENERATING (67% ~ 99%)
             updateJobStatus(job.getId(), "TTS_GENERATING", 67);
             updateJobDetail(job.getId(), "음성 합성 엔진 시작 중...", 67);
             exitCode = runPythonProcess("TTS.py", smartadvInput, smartadvOutput, job.getId());
+            checkCancelled(job.getId());
             if (exitCode != 0) throw new RuntimeException("TTS.py failed with exit code " + exitCode);
 
             // 5. DONE -> Generate Result object
@@ -119,13 +126,50 @@ public class WorkerClientService {
 
         } catch (InterruptedException e) {
             log.error("Pipeline interrupted", e);
-            updateJobStatus(job.getId(), "FAILED", 0);
+            updateJobStatus(job.getId(), "CANCELLED", 0);
             Thread.currentThread().interrupt();
+        } catch (CancellationException e) {
+            log.info("Pipeline cancelled by user for job {}", job.getId());
+            // 상태는 cancelJob()에서 이미 CANCELLED로 설정됨
         } catch (Exception e) {
             log.error("Pipeline failed", e);
             updateJobDetail(job.getId(), "오류 발생: " + e.getMessage(), 0);
             updateJobStatus(job.getId(), "FAILED", 0);
         }
+    }
+
+    /**
+     * 사용자가 페이지를 이탈할 때 호출 — 실행 중인 프로세스를 강제 종료합니다.
+     */
+    public boolean cancelJob(Long videoId) {
+        return analysisJobRepository.findByVideoId(videoId).map(job -> {
+            Long jobId = job.getId();
+            Process process = runningProcesses.remove(jobId);
+            if (process != null && process.isAlive()) {
+                log.info("Cancelling job {} (videoId={}), destroying process", jobId, videoId);
+                process.destroyForcibly();
+            }
+            updateJobDetail(jobId, "사용자에 의해 취소됨", 0);
+            updateJobStatus(jobId, "CANCELLED", 0);
+
+            // 작업 디렉토리 정리
+            Path workspace = Paths.get(mockStorageLocation).toAbsolutePath().normalize().resolve("job_" + jobId);
+            deleteDirectoryRecursively(workspace);
+
+            return true;
+        }).orElse(false);
+    }
+
+    private void checkCancelled(Long jobId) {
+        analysisJobRepository.findById(jobId).ifPresent(j -> {
+            if ("CANCELLED".equals(j.getStatus())) {
+                throw new CancellationException("Job " + jobId + " was cancelled");
+            }
+        });
+    }
+
+    private static class CancellationException extends RuntimeException {
+        CancellationException(String message) { super(message); }
     }
 
     private void updateJobStatus(Long jobId, String status, int progress) {
@@ -180,6 +224,7 @@ public class WorkerClientService {
 
         pb.redirectErrorStream(true);
         Process process = pb.start();
+        runningProcesses.put(jobId, process);
 
         StringBuilder lastLines = new StringBuilder();
         try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
@@ -207,6 +252,7 @@ public class WorkerClientService {
         }
 
         int exitCode = process.waitFor();
+        runningProcesses.remove(jobId);
         if (exitCode != 0) {
             log.error("[{}] 비정상 종료 (exit code {}). 마지막 출력:\n{}", scriptName, exitCode, lastLines);
         }

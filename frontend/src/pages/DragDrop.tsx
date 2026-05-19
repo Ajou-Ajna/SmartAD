@@ -1,4 +1,4 @@
-import { FunctionComponent, useState } from "react";
+import { FunctionComponent, useState, useRef, useEffect } from "react";
 import NavigationRail from "../components/NavigationRail";
 import DropZone from "../components/DropZone";
 import { useNavigate } from "react-router-dom";
@@ -8,6 +8,28 @@ const DragDrop: FunctionComponent = () => {
   const navigate = useNavigate();
   const { addArchiveItem } = useAppContext();
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
+
+  // 업로드 중 페이지 이탈 시 경고 + 중단 처리
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (xhrRef.current) {
+        e.preventDefault();
+        // 브라우저에 "정말 나가시겠습니까?" 확인창 표시
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      // 컴포넌트 언마운트 시 (뒤로가기 등) 진행 중인 업로드 중단
+      if (xhrRef.current) {
+        xhrRef.current.abort();
+        xhrRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="w-full min-h-screen relative bg-schemes-surface flex flex-col items-start py-0 px-[13px] box-border leading-[normal] tracking-[normal]">
@@ -58,6 +80,7 @@ const DragDrop: FunctionComponent = () => {
               setUploadProgress(0);
 
               const xhr = new XMLHttpRequest();
+              xhrRef.current = xhr;
               xhr.open("POST", "/api/videos/upload", true);
 
               xhr.upload.onprogress = (event) => {
@@ -68,6 +91,7 @@ const DragDrop: FunctionComponent = () => {
               };
 
               xhr.onload = () => {
+                xhrRef.current = null;
                 if (xhr.status >= 200 && xhr.status < 300) {
                   try {
                     const data = JSON.parse(xhr.responseText);
@@ -83,6 +107,7 @@ const DragDrop: FunctionComponent = () => {
               };
 
               xhr.onerror = () => {
+                xhrRef.current = null;
                 console.error("Upload Error");
                 setUploadProgress(null);
               };
