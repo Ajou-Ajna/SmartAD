@@ -170,6 +170,14 @@ public class WorkerClientService {
         pb.environment().put("SMARTADV_OUTPUT", smartadvOutput);
         pb.environment().put("PYTHONUNBUFFERED", "1");
 
+        // Modal 인증 토큰 전달 (modal deploy 이후 engine_backup.py에서 .remote()/.map() 호출에 필요)
+        String modalTokenId = System.getenv("MODAL_TOKEN_ID");
+        String modalTokenSecret = System.getenv("MODAL_TOKEN_SECRET");
+        if (modalTokenId != null && modalTokenSecret != null) {
+            pb.environment().put("MODAL_TOKEN_ID", modalTokenId);
+            pb.environment().put("MODAL_TOKEN_SECRET", modalTokenSecret);
+        }
+
         pb.redirectErrorStream(true);
         Process process = pb.start();
 

@@ -2,8 +2,6 @@
 import subprocess
 import sys
 
-# 파이토치 임포트
-import torch
 # 운영체제와 상호작용하기 위한 모듈
 import os
 
@@ -14,6 +12,11 @@ import psutil
 # FFmpeg 로그 분석을 위한 정규표현식 모듈
 import re
 import glob
+
+# Modal GPU 워커 호출 (modal_workers.py 참고)
+# 사전 조건: modal deploy modal_workers.py 로 배포 완료 필요
+import modal
+from pathlib import Path
 
 
 def report_progress(pct: int, message: str):
@@ -37,7 +40,6 @@ MIN_SILENCE_DURATION = 5.0
 # 장면 전환(카메라 컷) 감지 민감도 (기본 0.3)
 SCENE_THRESHOLD = 0.25
 
-
 # 장면 캡처시 캡처 간격 설정
 SCENE_GAP = 1.0
 MIN_SCENE_DURATION = 3.0
@@ -48,21 +50,15 @@ MIN_CUT_WINDOW = 5.0
 # 무음 구간 전후 음원 추출 시 추출할 길이
 CONTEXT_WINDOW = 15.0
 CONTEXT_AUDIO_DIR = os.path.join(OUTPUT_DIR, "context_audio")
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-WHISPER_CPP_BIN = os.getenv("WHISPER_CPP_BIN", os.path.join(_BASE_DIR, "whisper.cpp", "build", "bin", "whisper-cli"))
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", os.path.join(_BASE_DIR, "whisper.cpp", "models", "ggml-small.bin"))
-SMARTADV_ENABLE_STT = os.getenv("SMARTADV_ENABLE_STT", "1") == "1"
+
 STT_OUTPUT_FILE = os.path.join(OUTPUT_DIR, "stt_summary.txt")
-
-# 하드웨어 가속 설정 (True: CPU 강제 사용, False: 가능하면 GPU 사용)
-CPU_ONLY = False
-
 
 # --설정 영역 end--
 
+
 def get_video_duration(file_path):
     # 영상 전체 길이를 초 단위로 알아내기 위한 함수
-    # ffprobe는 ffmpeg 화 함꼐 깔리는 미디어 정보 분석 도구
+    # ffprobe는 ffmpeg 와 함께 깔리는 미디어 정보 분석 도구
     # 영상 포맷 정보 중 duration 만 정확히 텍스트로 뽑아내도록 함
 
     cmd = [
@@ -123,6 +119,7 @@ def format_timestamp(seconds):
     minutes = (total_seconds % 3600) // 60
     secs = total_seconds % 60
     return f"{hours:02d}:{minutes:02d}:{secs:02d}:{ms:03d}"
+
 
 def group_cuts_into_scenes(scene_times, silence_start, silence_end):
     """첫 장면전환 시점부터 누적하여, 다음 cut을 포함하면 span >= 5초가 되는 시점에서 scene을 끊습니다.
@@ -187,80 +184,12 @@ def write_silence_summary(silence_summaries):
     print(f"\n무음 구간 요약이 파일로 저장되었습니다: {output_path}")
 
 
-
-
-
-def parse_whisper_output(stdout_text):
-    # whisper.cpp 표준 출력에서 [start --> end] text 형식 파싱
-    segments = []
-    pattern = re.compile(
-        r"\[(\d{2}):(\d{2}):(\d{2})\.\d+\s+-->\s+(\d{2}):(\d{2}):(\d{2})\.\d+\]\s*(.*)"
-    )
-
-    for raw_line in stdout_text.splitlines():
-        line = raw_line.strip()
-        match = pattern.match(line)
-        if not match:
-            continue
-
-        start_h, start_m, start_s, _, _, _, text = match.groups()
-        text = text.strip()
-        if not text:
-            continue
-
-        relative_start = int(start_h) * 3600 + int(start_m) * 60 + int(start_s)
-        segments.append({
-            'relative_start': relative_start,
-            'text': text,
-        })
-
-    return segments
-
-
-
-def transcribe_audio_with_whisper(audio_file):
-    # whisper.cpp CLI를 호출해 단일 음원 파일을 전사
-    if not os.path.exists(audio_file):
-        return []
-    if not SMARTADV_ENABLE_STT:
-        print("[STT] SMARTADV_ENABLE_STT=0, whisper.cpp transcription skipped.")
-        return []
-    if not os.path.exists(WHISPER_CPP_BIN):
-        print(f"[STT] whisper.cpp binary not found, transcription skipped: {WHISPER_CPP_BIN}")
-        return []
-    if not os.path.exists(WHISPER_MODEL):
-        print(f"[STT] whisper.cpp model not found, transcription skipped: {WHISPER_MODEL}")
-        return []
-
-    cmd = [
-        WHISPER_CPP_BIN,
-        "-m", WHISPER_MODEL,
-        "-f", audio_file,
-        "-l", "ko"
-    ]
-
-    try:
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8'
-        )
-    except OSError as exc:
-        print(f"[STT] whisper.cpp execution failed, transcription skipped: {exc}")
-        return []
-
-    if result.returncode != 0:
-        print(f"[경고] whisper.cpp 전사 실패: {audio_file}")
-        print(result.stderr)
-        return []
-
-    return parse_whisper_output(result.stdout)
-
-
-
 def write_stt_summary(silence_summaries):
+    """Modal STT 결과(pre-computed)를 파일로 기록합니다.
+
+    silence_summaries 각 항목에 'before_stt_segments' / 'after_stt_segments' 키가
+    이미 채워져 있어야 합니다. (main()의 STEP 5에서 Modal .map() 결과로 채움)
+    """
     with open(STT_OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write("[무음 구간 전후 대사 추출 결과]\n\n")
 
@@ -270,20 +199,15 @@ def write_stt_summary(silence_summaries):
             return
 
         for summary in silence_summaries:
-            print(f"   -> 무음구간 {summary['index']} 전/후 문맥 음원 전사 중...")
+            print(f"   -> 무음구간 {summary['index']} 전/후 대사 기록 중...")
 
             for side_key, side_label in (("before", "전"), ("after", "후")):
                 f.write(f"[무음구간{summary['index']} {side_label}]\n")
 
-                audio_file = summary.get(f"{side_key}_audio_file")
+                segments = summary.get(f"{side_key}_stt_segments", [])
                 time_offset = summary.get(f"{side_key}_time_offset")
 
-                if not audio_file or time_offset is None or not os.path.exists(audio_file):
-                    f.write("대사 없음\n\n")
-                    continue
-
-                segments = transcribe_audio_with_whisper(audio_file)
-                if not segments:
+                if not segments or time_offset is None:
                     f.write("대사 없음\n\n")
                     continue
 
@@ -296,6 +220,7 @@ def write_stt_summary(silence_summaries):
                 f.write("\n")
 
     print(f"\nSTT 결과가 파일로 저장되었습니다: {STT_OUTPUT_FILE}")
+
 
 def main():
     # 초정밀 타이머 시작 및 CPU 점유율 측정 기준점 설정
@@ -311,99 +236,55 @@ def main():
         os.remove(old_img)
     print("[정리] 이전 scene 이미지 삭제 완료")
 
-    # 🌟 연산 디바이스(Device) 결정 로직 (크로스 플랫폼 지원 🌟)
-    if CPU_ONLY:
-        device = torch.device('cpu')
-        print("🖥️ [시스템] 연산 장치: 강제 CPU 모드로 실행됩니다.")
-    elif torch.cuda.is_available():
-        # 윈도우 데스크탑 (NVIDIA GPU)
-        device = torch.device('cuda')
-        print(f"🚀 [시스템] 연산 장치: 윈도우 GPU ({torch.cuda.get_device_name(0)}) 모드로 실행됩니다.")
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        # 맥북 M4 Pro 등 (Apple Silicon GPU)
-        device = torch.device('mps')
-        print("🍏 [시스템] 연산 장치: Mac Apple Silicon (MPS) 모드로 실행됩니다.")
-    else:
-        # GPU를 쓸 수 없는 기타 환경
-        device = torch.device('cpu')
-        print("🖥️ [시스템] 연산 장치: 사용 가능한 GPU가 없어 CPU 모드로 실행됩니다.")
+    # Modal GPU 워커 참조
+    # modal deploy modal_workers.py 로 배포한 함수를 이름으로 조회합니다.
+    # MODAL_TOKEN_ID / MODAL_TOKEN_SECRET 환경변수(또는 ~/.modal.toml)가 필요합니다.
+    run_vad = modal.Function.from_name("smartadv", "run_vad")
+    run_stt = modal.Function.from_name("smartadv", "run_stt")
 
-    # STEP1. ffmpeg를 통한 분석 오디오 추출
+    # STEP 1. ffmpeg를 통한 분석 오디오 추출
 
     report_progress(2, "영상에서 오디오를 추출하는 중...")
-    print("[1/4] 영상에서 오디오를 추출하는 중...")
+    print("[1/5] 영상에서 오디오를 추출하는 중...")
 
-    # Silero VAD는 16KHZ 오디오를 가장 잘 인식하기에, 원본 소스를 16KHZ로 리샘플링
-    # -y : 덮어쓰기 허용 / -vn : 비디오 제외 / -ac 1: 모노채널/ -ar 16000 16KHZ
+    # Silero VAD는 16KHz 오디오를 가장 잘 인식하기에, 원본 소스를 16KHz로 리샘플링
+    # -y : 덮어쓰기 허용 / -vn : 비디오 제외 / -ac 1: 모노채널 / -ar 16000: 16KHz
     subprocess.run(["ffmpeg", "-y", "-i", INPUT_FILE, "-vn",
                     "-ac", "1", "-ar", "16k", TEMP_WAV],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # DEVNULL : 터미널이 ffmpeg 로그로 지저분해지는 것을 막기위해 stdout와 stderr을 NULL로
 
-    # STEP2. Silero VAD 로드 및 음성(대사) 구간 탐지
+    # STEP 2. Modal GPU — Silero VAD로 음성(대사) 구간 탐지
 
-    report_progress(8, "Silero VAD 모델 로드 및 대사 구간 탐지 중...")
-    print("[2/4] Silero VAD 모델 로드 및 대사 구간 탐지중...")
+    report_progress(8, "Modal GPU에서 Silero VAD로 대사 구간 탐지 중...")
+    print("[2/5] Modal GPU에서 Silero VAD 실행 중...")
 
-    # PyTorch Hub를 이용해 깃허브에서 Silero VAD 모델을 직접 가져옴
-    # 로컬에 모델 파일이 없으면 자동으로 다운로드하고, 있으면 캐시된 모델을 빠르게 메모리에 올림.
-    model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
-                                  model='silero_vad',
-                                  trust_repo=True)
-
-    # AI 모델을 위에서 결정한 device(CPU 또는 GPU) 메모리에 올림
-    model = model.to(device)
-
-    # utils에서  필요한 함수 2개(타임스탬프 얻기, 오디오 읽기) 뽑아오기
-    get_speech_timestamps, _, read_audio, _, _ = utils
-
-    # 방금 전 FFmpeg로 만든 16kHz 임시 오디오 파일을 데이터로 읽어 들임
-    wav = read_audio(TEMP_WAV)
-
-    # 오디오 데이터(Tensor)도 모델과 똑같은 위치로 보냄
-    wav = wav.to(device)
-
-    # Torch 전처리 로직
-    db_threshold = -25.0  # -35dB보다 작은 소리는 무시 (상황에 맞춰 -30, -40 등으로 조절)
-    amplitude_limit = 10 ** (db_threshold / 20)
-    wav[wav.abs() < amplitude_limit] = 0.0
-
-    # VAD 모델에 오디오 데이터를 넣고 "대사가 있는 구간"을 찾음
-    # return_seconds=True를 주면 프레임 단위가 아니라  '초(Second)' 단위로 결과 출력
-    speech_timestamps = get_speech_timestamps(
-        wav,
-        model,
-        sampling_rate=16000,
-        return_seconds=True,
-        threshold=0.9,  # (핵심) 기본값 0.5. 이 값을 0.7~0.8로 올리면 작거나 희미한 목소리는 무시합니다.
-        min_speech_duration_ms=250,  # 250ms(0.25초)보다 짧은 소리(헛기침, 쩝 소리 등)는 대사로 치지 않습니다.
-        min_silence_duration_ms=100  # 100ms 정도의 아주 짧은 묵음은 하나의 대사로 이어붙입니다.
-    )
+    wav_bytes = Path(TEMP_WAV).read_bytes()
+    speech_timestamps = run_vad.remote(wav_bytes)
+    print(f"   -> {len(speech_timestamps)}개의 음성 구간 감지 완료")
 
     # STEP 3. 무음(Non-speech) 구간 계산 (음성 구간의 반전)
 
     report_progress(16, "무음 구간 타임스탬프 계산 중...")
-    print("[3/4] 무음 구간 타임스탬프 계산 중...")
+    print("[3/5] 무음 구간 타임스탬프 계산 중...")
 
-    # 영상의 총 길이를 먼저 구함.
+    # 영상의 총 길이를 먼저 구함
     total_duration = get_video_duration(INPUT_FILE)
     silence_timestamps = []
     current_time = 0.0
 
-    # VAD가 찾아낸 '대사가 있는 구간'들을 하나씩 꺼내보면서 그 사이사이의 빈틈(무음)을 찾음.
+    # VAD가 찾아낸 '대사가 있는 구간'들을 하나씩 꺼내보면서 그 사이사이의 빈틈(무음)을 찾음
     for speech in speech_timestamps:
         start_speech = speech['start']  # 대사가 시작되는 시간
-        end_speech = speech['end']  # 대사가 끝나는 시간
+        end_speech = speech['end']      # 대사가 끝나는 시간
 
-        # 이전 대사가 끝난 시간(current_time)보다 다음 대사가 늦게 시작한다면, 그 사이가 대사가 없는 구간임.
+        # 이전 대사가 끝난 시간(current_time)보다 다음 대사가 늦게 시작한다면, 그 사이가 무음 구간
         if start_speech > current_time:
-            # 찾아낸 무음 구간을 리스트에 저장
             silence_timestamps.append({'start': current_time, 'end': start_speech})
 
         # 탐색 위치를 방금 끝난 대사의 종료 시간으로 업데이트
         current_time = end_speech
 
-    # 영상 맨 마지막에 대사가 끝나고 난 뒤부터 영상이 완전히 끝날 때까지의 남은 꼬리 부분도 무음 구간으로 처리
+    # 영상 맨 마지막에 남은 꼬리 부분도 무음 구간으로 처리
     if current_time < total_duration:
         silence_timestamps.append({'start': current_time, 'end': total_duration})
 
@@ -414,14 +295,13 @@ def main():
 
     clip_count = 0
     silence_summaries = []
-    # 찾아낸 무음 구간 리스트들에 대해 하나씩 접근
 
     for silence in silence_timestamps:
         start = silence['start']
         end = silence['end']
         duration = end - start  # 잘라낼 영상의 길이 계산
 
-        # 무음 구간이 설정한 최소 길이보다 짧으면 무시하고 넘어감. (너무 자잘한 클립 생성 방지)
+        # 무음 구간이 설정한 최소 길이보다 짧으면 무시하고 넘어감
         if duration < MIN_SILENCE_DURATION:
             continue
 
@@ -475,7 +355,7 @@ def main():
         else:
             print("   -> 이후 문맥 음원 없음 (영상 끝 구간과 맞닿아 있음)")
 
-        # ---장면 전환(컷) 분석 및 프레임/샷 분할 ---
+        # --- 장면 전환(컷) 분석 및 프레임/샷 분할 ---
         scene_times = detect_scene_changes(
             INPUT_FILE,
             threshold=SCENE_THRESHOLD,
@@ -527,21 +407,50 @@ def main():
         else:
             print(f"   -> 장면 전환 없음.")
 
-    # STEP 5. 모든 FFmpeg 전처리가 끝난 뒤, 추출된 전후 문맥 음원들에 대해 한 번에 STT 수행
-    report_progress(28, "Whisper STT 음성 인식 전사 중...")
-    print("[5/5] 모든 전처리 완료. 추출된 문맥 음원들에 대해 whisper.cpp 전사를 시작합니다...")
+    # STEP 5. Modal GPU — 모든 context audio 클립 병렬 STT
+
+    report_progress(28, "Modal GPU에서 병렬 음성 인식 전사 중...")
+    print("[5/5] Modal GPU에서 한국어 음성 전사 중...")
+
+    # STT를 돌릴 (summary_index, side_key, audio_path) 목록 수집
+    stt_tasks = []
+    for i, summary in enumerate(silence_summaries):
+        for side_key in ("before", "after"):
+            audio_file = summary.get(f"{side_key}_audio_file")
+            time_offset = summary.get(f"{side_key}_time_offset")
+            if audio_file and time_offset is not None and os.path.exists(audio_file):
+                stt_tasks.append((i, side_key, audio_file))
+
+    # silence_summaries에 STT 결과 키 초기화
+    for summary in silence_summaries:
+        summary['before_stt_segments'] = []
+        summary['after_stt_segments'] = []
+
+    if stt_tasks:
+        print(f"   -> {len(stt_tasks)}개 오디오 클립을 Modal에서 병렬 전사합니다...")
+        audio_bytes_list = [Path(task[2]).read_bytes() for task in stt_tasks]
+
+        # .map() : 각 클립마다 Modal이 별도 GPU 컨테이너를 띄워 병렬 처리
+        stt_results = list(run_stt.map(audio_bytes_list))
+
+        # 결과를 silence_summaries에 채워 넣기
+        for task, result in zip(stt_tasks, stt_results):
+            summary_idx, side_key, _ = task
+            silence_summaries[summary_idx][f'{side_key}_stt_segments'] = result or []
+    else:
+        print("   -> 전사할 오디오 클립이 없습니다.")
 
     write_silence_summary(silence_summaries)
     write_stt_summary(silence_summaries)
 
-    # 영상 자르기와 STT가 모두 끝났으므로, 처음에 만들었던 임시 오디오 파일(temp_16k.wav)을 지워서 용량 확보
+    # 임시 오디오 파일(temp_16k.wav) 삭제하여 용량 확보
     if os.path.exists(TEMP_WAV):
         os.remove(TEMP_WAV)
 
     report_progress(33, "전처리 엔진 완료")
     print("\n모든 작업이 완료되었습니다")
 
-    #  [모니터링 종료 및 결과 출력]
+    # [모니터링 종료 및 결과 출력]
     end_time = time.perf_counter()
     cpu_loads = psutil.cpu_percent(percpu=True)
 
