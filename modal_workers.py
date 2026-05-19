@@ -4,9 +4,10 @@ SmartADV Modal GPU 워커
 배포:  modal deploy modal_workers.py
 테스트: modal run modal_workers.py
 
-engine_backup.py에서 아래 두 함수를 .remote() / .map() 으로 호출합니다.
-  - run_vad  : Silero VAD — 16kHz 모노 WAV 바이트 → 음성 구간 타임스탬프 목록
-  - run_stt  : openai-whisper — 오디오 바이트 → 한국어 전사 세그먼트 목록
+engine_backup.py에서 아래 함수를 .map() 으로 호출합니다.
+  - run_stt  : openai-whisper (GPU) — 오디오 바이트 → 한국어 전사 세그먼트 목록
+
+[참고] Silero VAD는 GPU 미지원으로 EC2 CPU에서 로컬 실행합니다 (engine_backup.py 참고).
 """
 
 import modal
@@ -33,69 +34,7 @@ image = (
 
 
 # ---------------------------------------------------------------------------
-# VAD 워커
-# ---------------------------------------------------------------------------
-
-@app.function(
-    image=image,
-    volumes={"/root/.cache": model_cache},
-    timeout=600,   # 장편 영상 대응
-    retries=1,
-)
-def run_vad(wav_bytes: bytes) -> list[dict]:
-    """Silero VAD를 실행합니다 (CPU 전용 모델).
-
-    Args:
-        wav_bytes: 16kHz 모노 WAV 파일의 바이트 (FFmpeg 추출 결과물).
-
-    Returns:
-        음성 구간 목록. 예: [{'start': 12.3, 'end': 15.7}, ...]
-        engine_backup.py에서 silence 구간 계산에 사용됩니다.
-    """
-    import io
-    import torch
-    import torchaudio
-
-    # bytes → FloatTensor
-    buf = io.BytesIO(wav_bytes)
-    wav, sr = torchaudio.load(buf)
-
-    # 샘플레이트 보정 (혹시 16kHz가 아닌 경우)
-    if sr != 16000:
-        wav = torchaudio.transforms.Resample(sr, 16000)(wav)
-    # 스테레오라면 모노로 다운믹스
-    if wav.shape[0] > 1:
-        wav = wav.mean(0, keepdim=True)
-    wav = wav.squeeze(0)   # (samples,)
-
-    # Silero VAD 로드 (Volume 캐시 → 재다운로드 없음)
-    model, utils = torch.hub.load(
-        repo_or_dir="snakers4/silero-vad",
-        model="silero_vad",
-        trust_repo=True,
-    )
-    get_speech_timestamps = utils[0]
-
-    # 진폭 게이팅: engine_backup.py 원본과 동일한 -25 dB 임계값
-    amplitude_limit = 10 ** (-25.0 / 20)
-    wav[wav.abs() < amplitude_limit] = 0.0
-
-    speech_timestamps = get_speech_timestamps(
-        wav,
-        model,
-        sampling_rate=16000,
-        return_seconds=True,
-        threshold=0.9,
-        min_speech_duration_ms=250,
-        min_silence_duration_ms=100,
-    )
-
-    # JSON-serializable dict 형태로 변환
-    return [{"start": float(ts["start"]), "end": float(ts["end"])} for ts in speech_timestamps]
-
-
-# ---------------------------------------------------------------------------
-# STT 워커
+# STT 워커  (VAD는 EC2 CPU 로컬 실행 → engine_backup.py 참고)
 # ---------------------------------------------------------------------------
 
 @app.function(
@@ -151,6 +90,5 @@ def run_stt(audio_bytes: bytes) -> list[dict]:
 @app.local_entrypoint()
 def test():
     """modal run modal_workers.py 로 배포 상태를 빠르게 확인합니다."""
-    print("✅ VAD  함수:", run_vad.get_info())
     print("✅ STT  함수:", run_stt.get_info())
-    print("배포 확인 완료 — engine_backup.py에서 .remote() / .map() 으로 호출 가능합니다.")
+    print("배포 확인 완료 — engine_backup.py에서 .map() 으로 호출 가능합니다.")

@@ -13,7 +13,10 @@ import psutil
 import re
 import glob
 
-# Modal GPU 워커 호출 (modal_workers.py 참고)
+# 파이토치 임포트 (Silero VAD EC2 로컬 실행용)
+import torch
+
+# Modal GPU 워커 호출 - STT 전용 (modal_workers.py 참고)
 # 사전 조건: modal deploy modal_workers.py 로 배포 완료 필요
 import modal
 from pathlib import Path
@@ -236,10 +239,9 @@ def main():
         os.remove(old_img)
     print("[정리] 이전 scene 이미지 삭제 완료")
 
-    # Modal GPU 워커 참조
+    # Modal GPU 워커 참조 (STT 전용)
     # modal deploy modal_workers.py 로 배포한 함수를 이름으로 조회합니다.
     # MODAL_TOKEN_ID / MODAL_TOKEN_SECRET 환경변수(또는 ~/.modal.toml)가 필요합니다.
-    run_vad = modal.Function.from_name("smartadv", "run_vad")
     run_stt = modal.Function.from_name("smartadv", "run_stt")
 
     # STEP 1. ffmpeg를 통한 분석 오디오 추출
@@ -253,13 +255,36 @@ def main():
                     "-ac", "1", "-ar", "16k", TEMP_WAV],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # STEP 2. Modal GPU — Silero VAD로 음성(대사) 구간 탐지
+    # STEP 2. Silero VAD 로드 및 음성(대사) 구간 탐지 (EC2 CPU 로컬 실행)
 
-    report_progress(8, "Modal GPU에서 Silero VAD로 대사 구간 탐지 중...")
-    print("[2/5] Modal GPU에서 Silero VAD 실행 중...")
+    report_progress(8, "Silero VAD 모델 로드 및 대사 구간 탐지 중...")
+    print("[2/5] Silero VAD 모델 로드 및 대사 구간 탐지 중...")
 
-    wav_bytes = Path(TEMP_WAV).read_bytes()
-    speech_timestamps = run_vad.remote(wav_bytes)
+    # PyTorch Hub를 이용해 Silero VAD 모델 로드
+    # 로컬에 캐시된 모델이 없으면 자동 다운로드
+    model, utils = torch.hub.load(
+        repo_or_dir='snakers4/silero-vad',
+        model='silero_vad',
+        trust_repo=True
+    )
+    get_speech_timestamps, _, read_audio, _, _ = utils
+
+    # 방금 전 FFmpeg로 만든 16kHz 임시 오디오 파일을 읽어 들임
+    wav = read_audio(TEMP_WAV)
+
+    # 진폭 게이팅: -25dB 이하 소리는 무시
+    amplitude_limit = 10 ** (-25.0 / 20)
+    wav[wav.abs() < amplitude_limit] = 0.0
+
+    speech_timestamps = get_speech_timestamps(
+        wav,
+        model,
+        sampling_rate=16000,
+        return_seconds=True,
+        threshold=0.9,
+        min_speech_duration_ms=250,
+        min_silence_duration_ms=100,
+    )
     print(f"   -> {len(speech_timestamps)}개의 음성 구간 감지 완료")
 
     # STEP 3. 무음(Non-speech) 구간 계산 (음성 구간의 반전)
