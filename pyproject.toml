@@ -13,14 +13,16 @@ priority = "explicit"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.15"
+# Silero VAD는 EC2 CPU에서 로컬 실행 → torch/torchaudio CPU 빌드 사용
 torch = {version = "^2.8.0", source = "pytorch-cpu"}
 torchaudio = {version = "^2.8.0", source = "pytorch-cpu"}
+soundfile = "^0.13.1"
 psutil = "^7.2.2"
 packaging = "^26.0"
 google-genai = "^1.35.0"
 edge-tts = "^7.2.3"
-soundfile = "^0.13.1"
 python-dotenv = "^1.2.2"
+modal = ">=0.73.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^25.1.0"

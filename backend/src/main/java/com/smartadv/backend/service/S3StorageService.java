@@ -26,10 +26,25 @@ public class S3StorageService implements StorageService {
     @Value("${smartadv.aws.s3.bucket}")
     private String bucketName;
 
+    @Value("${smartadv.storage.mock-s3-dir:../mock-s3-storage}")
+    private String storageLocation;
+
+    private Path cacheLocation;
+
     private static final long MAX_S3_STORAGE_BYTES = 5L * 1024 * 1024 * 1024; // 5 GB
 
     public S3StorageService(S3Client s3Client) {
         this.s3Client = s3Client;
+    }
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        this.cacheLocation = java.nio.file.Paths.get(storageLocation).toAbsolutePath().normalize().resolve("s3_cache");
+        try {
+            java.nio.file.Files.createDirectories(this.cacheLocation);
+        } catch (java.io.IOException e) {
+            // Ignored
+        }
     }
 
     private void checkStorageLimit(long additionalBytes) {
@@ -138,6 +153,51 @@ public class S3StorageService implements StorageService {
             s3Client.getObject(getObjectRequest, ResponseTransformer.toFile(destination));
         } catch (Exception e) {
             throw new StorageException("Failed to download file from S3: " + s3Url, e);
+        }
+    }
+
+    @Override
+    public org.springframework.core.io.Resource loadAsResource(String s3Url) {
+        if (s3Url == null || s3Url.isBlank()) {
+            throw new StorageException("Empty URL provided");
+        }
+
+        // Fallback for mock-s3 URLs
+        if (s3Url.startsWith("mock-s3://")) {
+            String localPathStr = s3Url.replace("mock-s3://", "");
+            return new org.springframework.core.io.FileSystemResource(localPathStr);
+        }
+
+        try {
+            URI uri = new URI(s3Url);
+            String host = uri.getHost();
+            if (host == null || !host.endsWith(".s3.amazonaws.com")) {
+                // If it's a standard path or does not fit amazon S3 but is a file path, try reading locally
+                Path localPath = java.nio.file.Paths.get(s3Url);
+                if (java.nio.file.Files.exists(localPath)) {
+                    return new org.springframework.core.io.FileSystemResource(localPath);
+                }
+                throw new IllegalArgumentException("Invalid S3 URL format: " + s3Url);
+            }
+            
+            String extractedBucket = host.substring(0, host.indexOf(".s3.amazonaws.com"));
+            String key = uri.getPath().substring(1); // Remove leading slash
+
+            // Ensure key is safe (replace directory separators just in case)
+            String safeKey = key.replace("/", "_").replace("\\", "_");
+            Path localCacheFile = this.cacheLocation.resolve(safeKey).normalize().toAbsolutePath();
+
+            if (!java.nio.file.Files.exists(localCacheFile)) {
+                GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                        .bucket(extractedBucket)
+                        .key(key)
+                        .build();
+                s3Client.getObject(getObjectRequest, ResponseTransformer.toFile(localCacheFile));
+            }
+
+            return new org.springframework.core.io.FileSystemResource(localCacheFile);
+        } catch (Exception e) {
+            throw new StorageException("Failed to load S3 file as resource: " + s3Url, e);
         }
     }
 }

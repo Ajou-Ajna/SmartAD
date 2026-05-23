@@ -1,4 +1,4 @@
-import { FunctionComponent } from "react";
+import { FunctionComponent, useState, useRef, useEffect } from "react";
 import NavigationRail from "../components/NavigationRail";
 import DropZone from "../components/DropZone";
 import { useNavigate } from "react-router-dom";
@@ -7,6 +7,30 @@ import { useAppContext } from "../context/AppContext";
 const DragDrop: FunctionComponent = () => {
   const navigate = useNavigate();
   const { addArchiveItem } = useAppContext();
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
+
+  // 업로드 중 페이지 이탈 시 경고 + 중단 처리
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (xhrRef.current) {
+        e.preventDefault();
+        // 브라우저에 "정말 나가시겠습니까?" 확인창 표시
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      // 컴포넌트 언마운트 시 (뒤로가기 등) 진행 중인 업로드 중단
+      if (xhrRef.current) {
+        xhrRef.current.abort();
+        xhrRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <div className="w-full min-h-screen relative bg-schemes-surface flex flex-col items-start py-0 px-[13px] box-border leading-[normal] tracking-[normal]">
       <main className="self-stretch flex-1 flex items-start justify-between py-[5px] px-0 gap-0 text-left text-[16px] text-[#000] font-[Roboto]">
@@ -40,7 +64,10 @@ const DragDrop: FunctionComponent = () => {
             </div>
           </div>
           <DropZone
-            onFileSelected={async (file) => {
+            uploadProgress={uploadProgress}
+            onFileSelected={(file) => {
+              if (uploadProgress !== null) return; // Prevent double upload
+              
               addArchiveItem({
                 title: file.name,
                 type: "file",
@@ -50,20 +77,42 @@ const DragDrop: FunctionComponent = () => {
               const formData = new FormData();
               formData.append("file", file);
               
-              try {
-                const response = await fetch("/api/videos/upload", {
-                  method: "POST",
-                  body: formData,
-                });
-                if (response.ok) {
-                  const data = await response.json();
-                  navigate("/progress", { state: { destination: "/view", videoId: data.id } });
-                } else {
-                  console.error("Upload failed");
+              setUploadProgress(0);
+
+              const xhr = new XMLHttpRequest();
+              xhrRef.current = xhr;
+              xhr.open("POST", "/api/videos/upload", true);
+
+              xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                  const percentComplete = Math.round((event.loaded / event.total) * 100);
+                  setUploadProgress(percentComplete);
                 }
-              } catch (e) {
-                console.error("Upload Error", e);
-              }
+              };
+
+              xhr.onload = () => {
+                xhrRef.current = null;
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  try {
+                    const data = JSON.parse(xhr.responseText);
+                    navigate("/progress", { state: { destination: "/view", videoId: data.id } });
+                  } catch (e) {
+                    console.error("Failed to parse response", e);
+                    setUploadProgress(null);
+                  }
+                } else {
+                  console.error("Upload failed", xhr.statusText);
+                  setUploadProgress(null);
+                }
+              };
+
+              xhr.onerror = () => {
+                xhrRef.current = null;
+                console.error("Upload Error");
+                setUploadProgress(null);
+              };
+
+              xhr.send(formData);
             }}
           />
         </div>
