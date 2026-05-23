@@ -130,9 +130,9 @@ public class WorkerClientService {
             // 2. PREPROCESSING (0% ~ 33%)
             updateJobStatus(job.getId(), "PREPROCESSING", 1);
             updateJobDetail(job.getId(), "전처리 엔진 시작 중...", 1);
-            int exitCode = runPythonProcess("engine_backup.py", smartadvInput, smartadvOutput, job.getId());
+            int exitCode = runPythonProcess("engine.py", smartadvInput, smartadvOutput, job.getId());
             checkCancelled(job.getId());
-            if (exitCode != 0) throw new RuntimeException("engine_backup.py failed with exit code " + exitCode);
+            if (exitCode != 0) throw new RuntimeException("engine.py failed with exit code " + exitCode);
 
             // 3. SCRIPT_GENERATING (34% ~ 66%)
             updateJobStatus(job.getId(), "SCRIPT_GENERATING", 34);
