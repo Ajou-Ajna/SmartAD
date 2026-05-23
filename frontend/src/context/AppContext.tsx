@@ -127,12 +127,39 @@ export const AppProvider: FunctionComponent<{ children: ReactNode }> = ({ childr
     return newItem;
   };
 
-  const toggleLike = (id: string) => {
+  const toggleLike = async (id: string) => {
+    if (!token) return;
+    const targetItem = archiveItems.find((item) => item.id === id);
+    if (!targetItem) return;
+    const originalLiked = targetItem.liked;
+    const newLiked = !originalLiked;
+
+    // Optimistic Update
     setArchiveItems((prev) =>
       prev.map((item) =>
-        item.id === id ? { ...item, liked: !item.liked } : item
+        item.id === id ? { ...item, liked: newLiked } : item
       )
     );
+
+    try {
+      const res = await fetch(`/api/archive/${id}/like?liked=${newLiked}`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (!res.ok) {
+        throw new Error("Failed to save liked state on backend");
+      }
+    } catch (e) {
+      console.error("Failed to toggle like", e);
+      // Rollback on failure
+      setArchiveItems((prev) =>
+        prev.map((item) =>
+          item.id === id ? { ...item, liked: originalLiked } : item
+        )
+      );
+    }
   };
 
   return (

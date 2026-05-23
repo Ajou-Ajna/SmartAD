@@ -59,11 +59,30 @@ public class ArchiveController {
             item.put("audioSize", sizeInMb > 0 ? sizeInMb + "MB" : "12MB");
             
             item.put("date", result.getCreatedAt().format(formatter));
-            item.put("liked", false);
+            item.put("liked", result.isLiked());
 
             archiveItems.add(item);
         }
 
         return ResponseEntity.ok(archiveItems);
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/{id}/like")
+    public ResponseEntity<?> toggleLike(
+            @org.springframework.web.bind.annotation.PathVariable Long id,
+            @org.springframework.web.bind.annotation.RequestParam("liked") boolean liked) {
+        User currentUser = UserContext.getCurrentUser();
+        if (currentUser == null) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED).build();
+        }
+
+        return resultRepository.findById(id).map(result -> {
+            if (!result.getUserId().equals(currentUser.getId())) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
+            }
+            result.updateLiked(liked);
+            resultRepository.save(result);
+            return ResponseEntity.ok(Map.of("id", id, "liked", result.isLiked()));
+        }).orElse(ResponseEntity.notFound().build());
     }
 }

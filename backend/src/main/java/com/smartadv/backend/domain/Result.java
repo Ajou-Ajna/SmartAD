@@ -28,15 +28,22 @@ public class Result {
     private String narrationAudioPath; // s3Url of Audio File
     private String mergedVideoPath; // s3Url of Merged Video File
 
+    private boolean liked = false;
+
     private LocalDateTime createdAt;
 
     @Builder
-    public Result(Long jobId, Long userId, String scriptText, String narrationAudioPath, String mergedVideoPath) {
+    public Result(Long jobId, Long userId, String scriptText, String narrationAudioPath, String mergedVideoPath, boolean liked) {
         this.jobId = jobId;
         this.userId = userId;
         this.scriptText = scriptText;
         this.narrationAudioPath = narrationAudioPath;
         this.mergedVideoPath = mergedVideoPath;
+        this.liked = liked;
         this.createdAt = LocalDateTime.now();
+    }
+
+    public void updateLiked(boolean liked) {
+        this.liked = liked;
     }
 }
