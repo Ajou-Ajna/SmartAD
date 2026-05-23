@@ -1,5 +1,7 @@
 package com.smartadv.backend.controller;
 
+import com.smartadv.backend.common.security.UserContext;
+import com.smartadv.backend.domain.User;
 import com.smartadv.backend.domain.Video;
 import com.smartadv.backend.dto.VideoResponse;
 import com.smartadv.backend.service.VideoService;
@@ -17,7 +19,9 @@ public class VideoController {
 
     @PostMapping("/upload")
     public ResponseEntity<VideoResponse> uploadVideo(@RequestParam("file") MultipartFile file) {
-        Video savedVideo = videoService.uploadVideo(file);
+        User currentUser = UserContext.getCurrentUser();
+        Long userId = (currentUser != null) ? currentUser.getId() : null;
+        Video savedVideo = videoService.uploadVideo(file, userId);
         return ResponseEntity.ok(new VideoResponse(savedVideo));
     }
 }

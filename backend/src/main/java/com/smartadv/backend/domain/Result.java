@@ -19,6 +19,8 @@ public class Result {
 
     private Long jobId; // Associated Analysis Job ID
 
+    private Long userId;
+
     @Lob
     @Column(columnDefinition="TEXT")
     private String scriptText;
@@ -29,8 +31,9 @@ public class Result {
     private LocalDateTime createdAt;
 
     @Builder
-    public Result(Long jobId, String scriptText, String narrationAudioPath, String mergedVideoPath) {
+    public Result(Long jobId, Long userId, String scriptText, String narrationAudioPath, String mergedVideoPath) {
         this.jobId = jobId;
+        this.userId = userId;
         this.scriptText = scriptText;
         this.narrationAudioPath = narrationAudioPath;
         this.mergedVideoPath = mergedVideoPath;

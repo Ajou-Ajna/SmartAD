@@ -19,6 +19,8 @@ public class AnalysisJob {
 
     private Long videoId; // Associated Video entity
 
+    private Long userId;
+
     private String status; // PENDING, PREPROCESSING, SCRIPT_GENERATING, TTS_GENERATING, MERGING, DONE, FAILED
 
     private Integer progress;
@@ -31,8 +33,9 @@ public class AnalysisJob {
     private LocalDateTime finishedAt;
 
     @Builder
-    public AnalysisJob(Long videoId) {
+    public AnalysisJob(Long videoId, Long userId) {
         this.videoId = videoId;
+        this.userId = userId;
         this.status = "PENDING";
         this.progress = 0;
         this.statusDetail = "";

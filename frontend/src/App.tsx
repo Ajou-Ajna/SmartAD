@@ -4,6 +4,7 @@ import {
   Route,
   useNavigationType,
   useLocation,
+  Navigate,
 } from "react-router-dom";
 import DragDrop from "./pages/DragDrop";
 import View from "./pages/View";
@@ -14,6 +15,17 @@ import Registeration from "./pages/Registeration";
 import Login from "./pages/Login";
 import Archive from "./pages/Archive";
 import Likes from "./pages/Likes";
+import { useAppContext } from "./context/AppContext";
+
+// Protected route wrapper
+const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
+  const { token } = useAppContext();
+  const savedToken = token || localStorage.getItem("smartadv_token");
+  if (!savedToken) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+};
 
 function App() {
   const action = useNavigationType();
@@ -86,19 +98,19 @@ function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<DragDrop />} />
-      <Route path="/url" element={<Main />} />
-      <Route path="/progress" element={<ProgressPage />} />
-      <Route path="/view" element={<View />} />
-      <Route path="/download" element={<Download />} />
+      <Route path="/" element={<ProtectedRoute><DragDrop /></ProtectedRoute>} />
+      <Route path="/url" element={<ProtectedRoute><Main /></ProtectedRoute>} />
+      <Route path="/progress" element={<ProtectedRoute><ProgressPage /></ProtectedRoute>} />
+      <Route path="/view" element={<ProtectedRoute><View /></ProtectedRoute>} />
+      <Route path="/download" element={<ProtectedRoute><Download /></ProtectedRoute>} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Registeration />} />
-      <Route path="/archive" element={<Archive />} />
-      <Route path="/likes" element={<Likes />} />
+      <Route path="/archive" element={<ProtectedRoute><Archive /></ProtectedRoute>} />
+      <Route path="/likes" element={<ProtectedRoute><Likes /></ProtectedRoute>} />
       {/* Legacy routes for backward compatibility */}
-      <Route path="/examplesview" element={<View />} />
-      <Route path="/examplesdownload" element={<Download />} />
-      <Route path="/examplesmain" element={<Main />} />
+      <Route path="/examplesview" element={<ProtectedRoute><View /></ProtectedRoute>} />
+      <Route path="/examplesdownload" element={<ProtectedRoute><Download /></ProtectedRoute>} />
+      <Route path="/examplesmain" element={<ProtectedRoute><Main /></ProtectedRoute>} />
       <Route path="/examplesregisteration" element={<Registeration />} />
       <Route path="/exampleslogin" element={<Login />} />
     </Routes>

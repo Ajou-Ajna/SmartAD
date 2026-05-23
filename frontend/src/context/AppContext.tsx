@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, FunctionComponent } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, FunctionComponent } from "react";
 
 export type ArchiveItem = {
   id: string;
@@ -12,12 +12,25 @@ export type ArchiveItem = {
   liked: boolean;
 };
 
+export type UserProfile = {
+  id: number;
+  email: string;
+  name: string;
+  picture: string;
+};
+
 type AppContextType = {
   archiveItems: ArchiveItem[];
   addArchiveItem: (item: Omit<ArchiveItem, "id" | "date" | "liked" | "audioFileName" | "audioSize">) => ArchiveItem;
   toggleLike: (id: string) => void;
   currentItem: ArchiveItem | null;
   setCurrentItem: (item: ArchiveItem | null) => void;
+  user: UserProfile | null;
+  token: string | null;
+  login: (token: string, user: UserProfile) => void;
+  logout: () => void;
+  fetchArchive: () => Promise<void>;
+  isLoadingArchive: boolean;
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -25,6 +38,78 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: FunctionComponent<{ children: ReactNode }> = ({ children }) => {
   const [archiveItems, setArchiveItems] = useState<ArchiveItem[]>([]);
   const [currentItem, setCurrentItem] = useState<ArchiveItem | null>(null);
+  
+  // Auth state
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
+
+  // Initialize auth from localStorage
+  useEffect(() => {
+    const savedToken = localStorage.getItem("smartadv_token");
+    const savedUser = localStorage.getItem("smartadv_user");
+    if (savedToken && savedUser) {
+      setToken(savedToken);
+      setUser(JSON.parse(savedUser));
+    }
+  }, []);
+
+  // Fetch archive whenever token is loaded/changed
+  useEffect(() => {
+    if (token) {
+      fetchArchive();
+    } else {
+      setArchiveItems([]);
+    }
+  }, [token]);
+
+  const login = (newToken: string, newUser: UserProfile) => {
+    setToken(newToken);
+    setUser(newUser);
+    localStorage.setItem("smartadv_token", newToken);
+    localStorage.setItem("smartadv_user", JSON.stringify(newUser));
+  };
+
+  const logout = () => {
+    // Notify backend asynchronously
+    if (token) {
+      fetch("/api/auth/logout", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      }).catch((e) => console.error("Backend logout failed", e));
+    }
+
+    setToken(null);
+    setUser(null);
+    setArchiveItems([]);
+    setCurrentItem(null);
+    localStorage.removeItem("smartadv_token");
+    localStorage.removeItem("smartadv_user");
+  };
+
+  const fetchArchive = async () => {
+    if (!token) return;
+    setIsLoadingArchive(true);
+    try {
+      const res = await fetch("/api/archive", {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setArchiveItems(data);
+      } else if (res.status === 401) {
+        logout(); // Auto logout on invalid token
+      }
+    } catch (e) {
+      console.error("Failed to fetch archive", e);
+    } finally {
+      setIsLoadingArchive(false);
+    }
+  };
 
   const addArchiveItem = (item: Omit<ArchiveItem, "id" | "date" | "liked" | "audioFileName" | "audioSize">) => {
     const newItem: ArchiveItem = {
@@ -35,6 +120,7 @@ export const AppProvider: FunctionComponent<{ children: ReactNode }> = ({ childr
       audioFileName: "smartadv_audio.wav",
       audioSize: "12MB",
     };
+    // Note: We can also sync with backend archive list immediately, or wait for next fetch
     setArchiveItems((prev) => [newItem, ...prev]);
     setCurrentItem(newItem);
     return newItem;
@@ -49,7 +135,19 @@ export const AppProvider: FunctionComponent<{ children: ReactNode }> = ({ childr
   };
 
   return (
-    <AppContext.Provider value={{ archiveItems, addArchiveItem, toggleLike, currentItem, setCurrentItem }}>
+    <AppContext.Provider value={{
+      archiveItems,
+      addArchiveItem,
+      toggleLike,
+      currentItem,
+      setCurrentItem,
+      user,
+      token,
+      login,
+      logout,
+      fetchArchive,
+      isLoadingArchive
+    }}>
       {children}
     </AppContext.Provider>
   );

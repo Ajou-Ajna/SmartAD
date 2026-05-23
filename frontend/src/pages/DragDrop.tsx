@@ -82,6 +82,11 @@ const DragDrop: FunctionComponent = () => {
               const xhr = new XMLHttpRequest();
               xhrRef.current = xhr;
               xhr.open("POST", "/api/videos/upload", true);
+              
+              const savedToken = localStorage.getItem("smartadv_token");
+              if (savedToken) {
+                xhr.setRequestHeader("Authorization", "Bearer " + savedToken);
+              }
 
               xhr.upload.onprogress = (event) => {
                 if (event.lengthComputable) {

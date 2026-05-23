@@ -109,6 +109,7 @@ public class WorkerClientService {
 
             Result result = Result.builder()
                 .jobId(job.getId())
+                .userId(job.getUserId())
                 .scriptText("자동 추출된 화면 해설 스크립트 기반 생성 결과물입니다.")
                 .narrationAudioPath(finalAudioS3Url)
                 .mergedVideoPath(finalVideoS3Url)

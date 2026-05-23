@@ -19,7 +19,7 @@ public class VideoService {
     private final WorkerClientService workerClientService;
 
     @Transactional
-    public Video uploadVideo(MultipartFile file) {
+    public Video uploadVideo(MultipartFile file, Long userId) {
         // 1. S3 (Mock)에 파일 업로드
         String storedUrl = storageService.uploadFile(file);
 
@@ -28,11 +28,15 @@ public class VideoService {
                 .originalFileName(file.getOriginalFilename())
                 .s3Url(storedUrl)
                 .fileSize(file.getSize())
+                .userId(userId)
                 .build();
         video = videoRepository.save(video);
         
         // 3. 작업(Job) 생성 및 파이프라인 트리거
-        AnalysisJob job = AnalysisJob.builder().videoId(video.getId()).build();
+        AnalysisJob job = AnalysisJob.builder()
+                .videoId(video.getId())
+                .userId(userId)
+                .build();
         job = analysisJobRepository.save(job);
         
         workerClientService.executeMockPipeline(video.getId(), job);

@@ -23,7 +23,9 @@ const ProgressPage: FunctionComponent = () => {
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/jobs/${videoId}`);
+        const savedToken = localStorage.getItem("smartadv_token");
+        const headers: HeadersInit = savedToken ? { "Authorization": "Bearer " + savedToken } : {};
+        const res = await fetch(`/api/jobs/${videoId}`, { headers });
         if (res.ok) {
           const job = await res.json();
           setProgress(job.progress || 0);
@@ -45,7 +47,9 @@ const ProgressPage: FunctionComponent = () => {
             jobDoneRef.current = true;
             clearInterval(interval);
             // Get the resulting audio url
-            const resultRes = await fetch(`/api/results/video/${videoId}`);
+            const savedToken = localStorage.getItem("smartadv_token");
+            const headers: HeadersInit = savedToken ? { "Authorization": "Bearer " + savedToken } : {};
+            const resultRes = await fetch(`/api/results/video/${videoId}`, { headers });
             let audioUrl = "";
             let videoUrl = "";
             if (resultRes.ok) {
@@ -73,8 +77,9 @@ const ProgressPage: FunctionComponent = () => {
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!jobDoneRef.current && videoIdRef.current) {
-        // sendBeacon은 탭이 닫혀도 브라우저가 확실히 전송해줌
-        navigator.sendBeacon(`/api/jobs/${videoIdRef.current}/cancel`);
+        const savedToken = localStorage.getItem("smartadv_token");
+        const headers: HeadersInit = savedToken ? { "Authorization": "Bearer " + savedToken } : {};
+        fetch(`/api/jobs/${videoIdRef.current}/cancel`, { method: "POST", headers, keepalive: true }).catch(() => {});
         e.preventDefault();
       }
     };
@@ -85,7 +90,9 @@ const ProgressPage: FunctionComponent = () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       // 컴포넌트 언마운트 시 (SPA 내 뒤로가기 등) 취소 호출
       if (!jobDoneRef.current && videoIdRef.current) {
-        fetch(`/api/jobs/${videoIdRef.current}/cancel`, { method: "DELETE" }).catch(() => {});
+        const savedToken = localStorage.getItem("smartadv_token");
+        const headers: HeadersInit = savedToken ? { "Authorization": "Bearer " + savedToken } : {};
+        fetch(`/api/jobs/${videoIdRef.current}/cancel`, { method: "DELETE", headers }).catch(() => {});
       }
     };
   }, []);
