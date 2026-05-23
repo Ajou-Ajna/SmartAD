@@ -3,6 +3,7 @@ package com.smartadv.backend.service;
 import com.smartadv.backend.common.exception.StorageException;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -15,6 +16,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 
 @Service
+@ConditionalOnProperty(name = "smartadv.aws.s3.bucket", matchIfMissing = true, havingValue = "mock")
 public class MockS3StorageService implements StorageService {
 
     @Value("${smartadv.storage.mock-s3-dir}")
@@ -60,6 +62,41 @@ public class MockS3StorageService implements StorageService {
             return "mock-s3://" + destinationFile.toString();
         } catch (IOException e) {
             throw new StorageException("Failed to store file.", e);
+        }
+    }
+
+    @Override
+    public String uploadFile(Path filePath) {
+        try {
+            if (!Files.exists(filePath)) {
+                throw new StorageException("Failed to store missing file.");
+            }
+            String generatedFileName = UUID.randomUUID() + "_" + filePath.getFileName().toString();
+            Path destinationFile = this.rootLocation.resolve(Paths.get(generatedFileName))
+                    .normalize().toAbsolutePath();
+
+            if (!destinationFile.getParent().equals(this.rootLocation)) {
+                throw new StorageException("Cannot store file outside current directory.");
+            }
+
+            Files.copy(filePath, destinationFile, StandardCopyOption.REPLACE_EXISTING);
+            return "mock-s3://" + destinationFile.toString();
+        } catch (IOException e) {
+            throw new StorageException("Failed to store file.", e);
+        }
+    }
+
+    @Override
+    public void downloadFile(String s3Url, Path destination) {
+        try {
+            String localPathStr = s3Url.replace("mock-s3://", "");
+            Path sourceFile = Paths.get(localPathStr);
+            if (!Files.exists(sourceFile)) {
+                throw new StorageException("Mock S3 source file does not exist: " + s3Url);
+            }
+            Files.copy(sourceFile, destination, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new StorageException("Failed to download file.", e);
         }
     }
 }

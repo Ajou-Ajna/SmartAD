@@ -26,7 +26,7 @@ SILENCE_SUMMARY_PATH = OUTPUT_DIR / "silence_summary.txt"
 STT_SUMMARY_PATH = OUTPUT_DIR / "stt_summary.txt"
 
 CONTEXT_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-GEMINI_MODEL = "gemini-3-flash-preview"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 LLM_RAW_OUTPUT_PATH = OUTPUT_DIR / "gemini_ad_raw.txt"
 LLM_CSV_OUTPUT_PATH = OUTPUT_DIR / "gemini_ad_script.csv"
 LLM_TXT_OUTPUT_PATH = OUTPUT_DIR / "gemini_ad_script.txt"
@@ -35,6 +35,8 @@ GEMINI_CLEAR_FILES_BEFORE_REQUEST = os.getenv("GEMINI_CLEAR_FILES_BEFORE_REQUEST
 GEMINI_DELETE_UPLOADED_FILES_AFTER_REQUEST = os.getenv("GEMINI_DELETE_UPLOADED_FILES_AFTER_REQUEST", "1") == "1"
 GEMINI_FILE_POLL_INTERVAL_SECONDS = float(os.getenv("GEMINI_FILE_POLL_INTERVAL_SECONDS", "2.0"))
 GEMINI_FILE_POLL_TIMEOUT_SECONDS = float(os.getenv("GEMINI_FILE_POLL_TIMEOUT_SECONDS", "60.0"))
+GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "180"))
+GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "5"))
 
 TTS_SYLLABLES_PER_SECOND = 4   # TTS 초당 발화 음절 수
 TTS_MARGIN_SECONDS = 0.5        # 해설 분량 계산 시 여유 시간 (초)
@@ -469,8 +471,7 @@ def call_gemini(prompt: str, silences: Dict[int, SilenceInfo]) -> str:
     cleanup_gemini_files(client)
     contents, uploaded_file_names = build_multimodal_contents(prompt, silences, client)
 
-    GEMINI_TIMEOUT_SECONDS = 180
-    max_retries = 5
+    max_retries = GEMINI_MAX_RETRIES
     last_error = None
 
     try:

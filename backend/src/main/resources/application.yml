@@ -1,3 +1,6 @@
+logging:
+  level:
+    org.springframework.web: DEBUG
 spring:
   datasource:
     url: jdbc:h2:mem:smartadv
@@ -19,11 +22,22 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 500MB
-      max-request-size: 500MB
+      location: /opt/smartadv/storage/tmp
+      max-file-size: 2000MB
+      max-request-size: 2000MB
 
 smartadv:
   storage:
-    mock-s3-dir: ../mock-s3-storage
+    mock-s3-dir: ${SMARTADV_STORAGE_DIR:../mock-s3-storage}
+  cors:
+    allowed-origins: ${SMARTADV_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   engine:
-    root-dir: ..
+    root-dir: ${SMARTADV_ENGINE_ROOT_DIR:..}
+    command: ${SMARTADV_ENGINE_COMMAND:poetry run python}
+  aws:
+    access-key: ${AWS_ACCESS_KEY_ID:}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:}
+    region: ${AWS_REGION:ap-northeast-2}
+    s3:
+      bucket: ${AWS_S3_BUCKET_NAME:}
+    web: DEBUG

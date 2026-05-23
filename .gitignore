@@ -34,3 +34,7 @@ Thumbs.db
 
 # Mock S3 storage (runtime data)
 /mock-s3-storage/
+
+*.pem
+
+DEPLOY_EC2.md

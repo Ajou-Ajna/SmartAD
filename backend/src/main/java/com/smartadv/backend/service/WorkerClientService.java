@@ -18,6 +18,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,6 +39,11 @@ public class WorkerClientService {
     @Value("${smartadv.engine.root-dir:..}")
     private String engineRootDir;
 
+    @Value("${smartadv.engine.command:poetry run python}")
+    private String engineCommand;
+
+    private final StorageService storageService;
+
     // Pattern to match PROGRESS:XX:message from Python stdout
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("^PROGRESS:(\\d+):(.+)$");
 
@@ -47,14 +55,21 @@ public class WorkerClientService {
             // 0. Get original video
             Video video = videoRepository.findById(videoId)
                     .orElseThrow(() -> new RuntimeException("Video not found: " + videoId));
-            String localOriginalPath = video.getS3Url().replace("mock-s3://", "");
 
             // 1. Create Workspace
             Path workspace = Paths.get(mockStorageLocation).toAbsolutePath().normalize().resolve("job_" + job.getId());
             Files.createDirectories(workspace);
 
             Path inputVideoPath = workspace.resolve("input.mp4");
-            Files.copy(Paths.get(localOriginalPath), inputVideoPath, StandardCopyOption.REPLACE_EXISTING);
+            
+            // DOWNLOAD FROM S3
+            if (video.getS3Url().startsWith("mock-s3://")) {
+                String localOriginalPath = video.getS3Url().replace("mock-s3://", "");
+                Files.copy(Paths.get(localOriginalPath), inputVideoPath, StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                log.info("Downloading video from S3: {}", video.getS3Url());
+                storageService.downloadFile(video.getS3Url(), inputVideoPath);
+            }
 
             String smartadvInput = inputVideoPath.toString();
             String smartadvOutput = workspace.resolve("output_clips").toString();
@@ -81,16 +96,22 @@ public class WorkerClientService {
             Path finalVideo = workspace.resolve("output_clips").resolve("input_with_ad.mp4");
             Path finalAudio = workspace.resolve("output_clips").resolve("input_with_ad_audio.m4a");
 
-            String mockVideoS3Url = "mock-s3://" + finalVideo.toAbsolutePath().toString();
-            String mockAudioS3Url = "mock-s3://" + finalAudio.toAbsolutePath().toString();
+            log.info("Uploading processed files to S3...");
+            String finalVideoS3Url = storageService.uploadFile(finalVideo);
+            String finalAudioS3Url = storageService.uploadFile(finalAudio);
 
             Result result = Result.builder()
                 .jobId(job.getId())
                 .scriptText("자동 추출된 화면 해설 스크립트 기반 생성 결과물입니다.")
-                .narrationAudioPath(mockAudioS3Url)
-                .mergedVideoPath(mockVideoS3Url)
+                .narrationAudioPath(finalAudioS3Url)
+                .mergedVideoPath(finalVideoS3Url)
                 .build();
             resultRepository.save(result);
+
+            updateJobDetail(job.getId(), "모든 처리 완료! 임시 파일 정리 중...", 99);
+            
+            // CLEAN UP WORKSPACE
+            deleteDirectoryRecursively(workspace);
 
             updateJobDetail(job.getId(), "모든 처리 완료!", 100);
             updateJobStatus(job.getId(), "DONE", 100);
@@ -114,6 +135,19 @@ public class WorkerClientService {
         });
     }
 
+    private void deleteDirectoryRecursively(Path path) {
+        try {
+            if (Files.exists(path)) {
+                Files.walk(path)
+                     .sorted(java.util.Comparator.reverseOrder())
+                     .map(Path::toFile)
+                     .forEach(java.io.File::delete);
+            }
+        } catch (java.io.IOException e) {
+            log.warn("Failed to delete workspace: " + path, e);
+        }
+    }
+
     private void updateJobDetail(Long jobId, String detail, int progress) {
         analysisJobRepository.findById(jobId).ifPresent(j -> {
             j.updateStatusDetail(detail, progress);
@@ -124,14 +158,17 @@ public class WorkerClientService {
     private int runPythonProcess(String scriptName, String smartadvInput, String smartadvOutput, Long jobId) throws Exception {
         // SmartADV Python engine root directory (configurable via smartadv.engine.root-dir)
         Path projectRoot = Paths.get(engineRootDir).toAbsolutePath().normalize();
-        log.info("Executing poetry run python {} (cwd={})", scriptName, projectRoot);
+        List<String> command = new ArrayList<>(parseEngineCommand(engineCommand));
+        command.add(scriptName);
+        log.info("Executing {} (cwd={})", String.join(" ", command), projectRoot);
 
-        ProcessBuilder pb = new ProcessBuilder("poetry", "run", "python", scriptName);
+        ProcessBuilder pb = new ProcessBuilder(command);
         pb.directory(projectRoot.toFile());
 
         // Pass dynamic IO environment variables
         pb.environment().put("SMARTADV_INPUT", smartadvInput);
         pb.environment().put("SMARTADV_OUTPUT", smartadvOutput);
+        pb.environment().put("PYTHONUNBUFFERED", "1");
 
         pb.redirectErrorStream(true);
         Process process = pb.start();
@@ -166,5 +203,11 @@ public class WorkerClientService {
             log.error("[{}] 비정상 종료 (exit code {}). 마지막 출력:\n{}", scriptName, exitCode, lastLines);
         }
         return exitCode;
+    }
+
+    private List<String> parseEngineCommand(String command) {
+        return Arrays.stream(command.trim().split("\\s+"))
+                .filter(part -> !part.isBlank())
+                .toList();
     }
 }
