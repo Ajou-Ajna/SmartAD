@@ -99,4 +99,14 @@ public class MockS3StorageService implements StorageService {
             throw new StorageException("Failed to download file.", e);
         }
     }
+
+    @Override
+    public org.springframework.core.io.Resource loadAsResource(String url) {
+        if (url == null || !url.startsWith("mock-s3://")) {
+            throw new StorageException("Invalid mock-s3 URL: " + url);
+        }
+        String localPathStr = url.replace("mock-s3://", "");
+        Path path = Paths.get(localPathStr);
+        return new org.springframework.core.io.FileSystemResource(path);
+    }
 }

@@ -17,4 +17,9 @@ public interface StorageService {
      * Download a file from S3 to a local destination
      */
     void downloadFile(String s3Url, java.nio.file.Path destination);
+
+    /**
+     * Load the resource from the given URL (mock-s3:// or real S3 https://)
+     */
+    org.springframework.core.io.Resource loadAsResource(String url);
 }
