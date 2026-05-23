@@ -55,4 +55,39 @@ public class VideoService {
         
         return video;
     }
+
+    @Transactional
+    public Video uploadYoutubeVideo(String youtubeUrl, Long userId) {
+        // 1. DB에 파일 정보 저장 (S3 URL 대신 유튜브 URL을 저장)
+        Video video = Video.builder()
+                .originalFileName("YouTube Video")
+                .s3Url("youtube:" + youtubeUrl)
+                .fileSize(0L)
+                .userId(userId)
+                .build();
+        video = videoRepository.save(video);
+        
+        // 2. 작업(Job) 생성 및 파이프라인 트리거
+        AnalysisJob job = AnalysisJob.builder()
+                .videoId(video.getId())
+                .userId(userId)
+                .build();
+        final AnalysisJob savedJob = analysisJobRepository.save(job);
+        final Long savedVideoId = video.getId();
+        
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        workerClientService.executeMockPipeline(savedVideoId, savedJob);
+                    }
+                }
+            );
+        } else {
+            workerClientService.executeMockPipeline(savedVideoId, savedJob);
+        }
+        
+        return video;
+    }
 }

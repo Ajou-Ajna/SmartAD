@@ -66,10 +66,44 @@ public class WorkerClientService {
 
             Path inputVideoPath = workspace.resolve("input.mp4");
             
-            // DOWNLOAD FROM S3
+            // DOWNLOAD FROM S3 / YOUTUBE
             if (video.getS3Url().startsWith("mock-s3://")) {
                 String localOriginalPath = video.getS3Url().replace("mock-s3://", "");
                 Files.copy(Paths.get(localOriginalPath), inputVideoPath, StandardCopyOption.REPLACE_EXISTING);
+            } else if (video.getS3Url().startsWith("youtube:")) {
+                String youtubeUrl = video.getS3Url().replace("youtube:", "");
+                log.info("Downloading video from YouTube using yt-dlp: {}", youtubeUrl);
+                updateJobDetail(job.getId(), "유튜브 동영상 다운로드 중...", 1);
+                
+                // Run yt-dlp command to download the video directly as input.mp4
+                List<String> ytdlCmd = Arrays.asList(
+                    "yt-dlp",
+                    "-f", "best[ext=mp4]/best",
+                    "--merge-output-format", "mp4",
+                    "-o", inputVideoPath.toString(),
+                    youtubeUrl
+                );
+                
+                ProcessBuilder pb = new ProcessBuilder(ytdlCmd);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                
+                // Keep track of the process for cancellation
+                runningProcesses.put(job.getId(), process);
+                
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        log.info("[yt-dlp] {}", line);
+                    }
+                }
+                
+                int exitCode = process.waitFor();
+                runningProcesses.remove(job.getId());
+                
+                if (exitCode != 0) {
+                    throw new RuntimeException("yt-dlp failed to download YouTube video. Exit code: " + exitCode);
+                }
             } else {
                 log.info("Downloading video from S3: {}", video.getS3Url());
                 storageService.downloadFile(video.getS3Url(), inputVideoPath);

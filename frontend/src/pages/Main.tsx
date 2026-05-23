@@ -30,10 +30,51 @@ const Main: FunctionComponent = () => {
 
     const isYouTubeUrl =
       raw.includes("youtube.com/watch") || raw.includes("youtu.be/");
-    const title = isYouTubeUrl ? await fetchYouTubeTitle(raw) : raw;
+    
+    if (!isYouTubeUrl) {
+      alert("죄송합니다. 현재는 유튜브(YouTube) 동영상 URL만 지원합니다.");
+      return;
+    }
 
-    addArchiveItem({ title, type: "url", url: raw });
-    navigate("/progress", { state: { destination: "/view" } });
+    try {
+      const savedToken = localStorage.getItem("smartadv_token");
+      const headers: HeadersInit = {
+        "Content-Type": "application/json"
+      };
+      if (savedToken) {
+        headers["Authorization"] = "Bearer " + savedToken;
+      }
+
+      const res = await fetch("/api/videos/youtube", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ url: raw })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const title = await fetchYouTubeTitle(raw);
+        addArchiveItem({ title, type: "url", url: raw });
+        navigate("/progress", { state: { destination: "/view", videoId: data.id } });
+      } else if (res.status === 429) {
+        try {
+          const data = await res.json();
+          const nextTime = new Date(data.nextAvailableTime).toLocaleTimeString("ko-KR", {
+            hour: "numeric",
+            minute: "2-digit"
+          });
+          alert(`[해설 생성 제한]\n\n일반 사용자는 해설 생성 성공 후 3시간에 1회만 생성할 수 있습니다.\n\n다음 생성 가능 시각: ${nextTime}`);
+        } catch (err) {
+          alert("일반 회원은 해설 생성 성공 후 3시간 동안 재생성이 제한됩니다.");
+        }
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        alert(errorData.error || "동영상 추출 및 분석 시작에 실패했습니다.");
+      }
+    } catch (e) {
+      console.error("YouTube URL processing error", e);
+      alert("서버 통신 오류가 발생했습니다.");
+    }
   }, [navigate, urlInput, addArchiveItem]);
 
   return (
