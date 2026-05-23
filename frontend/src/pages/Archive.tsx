@@ -1,11 +1,15 @@
-import { FunctionComponent } from "react";
+import { FunctionComponent, useEffect } from "react";
 import NavigationRail1 from "../components/NavigationRail1";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 
 const Archive: FunctionComponent = () => {
   const navigate = useNavigate();
-  const { archiveItems, toggleLike, setCurrentItem } = useAppContext();
+  const { archiveItems, toggleLike, setCurrentItem, fetchArchive } = useAppContext();
+
+  useEffect(() => {
+    fetchArchive();
+  }, []);
 
   return (
     <div className="w-full min-h-screen relative bg-schemes-surface flex flex-col items-start py-0 px-[13px] box-border leading-[normal] tracking-[normal]">

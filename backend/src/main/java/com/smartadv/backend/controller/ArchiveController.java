@@ -51,7 +51,7 @@ public class ArchiveController {
             item.put("id", result.getId().toString());
             item.put("title", video.getOriginalFileName());
             item.put("type", "file");
-            item.put("fileName", video.getS3Url());
+            item.put("fileName", result.getMergedVideoPath());
             item.put("audioFileName", result.getNarrationAudioPath());
             
             // Format size
