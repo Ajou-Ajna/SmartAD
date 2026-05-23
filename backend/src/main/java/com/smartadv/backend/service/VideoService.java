@@ -37,9 +37,21 @@ public class VideoService {
                 .videoId(video.getId())
                 .userId(userId)
                 .build();
-        job = analysisJobRepository.save(job);
+        final AnalysisJob savedJob = analysisJobRepository.save(job);
+        final Long savedVideoId = video.getId();
         
-        workerClientService.executeMockPipeline(video.getId(), job);
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        workerClientService.executeMockPipeline(savedVideoId, savedJob);
+                    }
+                }
+            );
+        } else {
+            workerClientService.executeMockPipeline(savedVideoId, savedJob);
+        }
         
         return video;
     }
