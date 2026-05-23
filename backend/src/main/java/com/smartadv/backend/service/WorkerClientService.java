@@ -76,13 +76,24 @@ public class WorkerClientService {
                 updateJobDetail(job.getId(), "유튜브 동영상 다운로드 중...", 1);
                 
                 // Run yt-dlp command to download the video directly as input.mp4
-                List<String> ytdlCmd = Arrays.asList(
-                    "yt-dlp",
-                    "-f", "best[ext=mp4]/best",
-                    "--merge-output-format", "mp4",
-                    "-o", inputVideoPath.toString(),
-                    youtubeUrl
-                );
+                List<String> ytdlCmd = new ArrayList<>();
+                ytdlCmd.add("yt-dlp");
+                
+                // Add cookies if cookies file exists
+                Path cookiesPath = Paths.get("/opt/smartadv/cookies.txt");
+                if (Files.exists(cookiesPath)) {
+                    ytdlCmd.add("--cookies");
+                    ytdlCmd.add(cookiesPath.toString());
+                    log.info("Using cookies file for yt-dlp to bypass bot detection: {}", cookiesPath);
+                }
+                
+                ytdlCmd.add("-f");
+                ytdlCmd.add("best[ext=mp4]/best");
+                ytdlCmd.add("--merge-output-format");
+                ytdlCmd.add("mp4");
+                ytdlCmd.add("-o");
+                ytdlCmd.add(inputVideoPath.toString());
+                ytdlCmd.add(youtubeUrl);
                 
                 ProcessBuilder pb = new ProcessBuilder(ytdlCmd);
                 pb.redirectErrorStream(true);
