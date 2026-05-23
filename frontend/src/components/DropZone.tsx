@@ -29,10 +29,10 @@ const DropZone: FunctionComponent<DropZoneType> = ({ className = "", uploadProgr
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       const file = files[0];
-      if (file.type.startsWith("video/")) {
+      if (file.name.toLowerCase().endsWith(".mp4") || file.type === "video/mp4") {
         onFileSelected?.(file);
       } else {
-        alert("영상 파일만 업로드할 수 있습니다.");
+        alert("MP4 형식의 영상 파일만 업로드할 수 있습니다.");
       }
     }
   };
@@ -46,7 +46,12 @@ const DropZone: FunctionComponent<DropZoneType> = ({ className = "", uploadProgr
     if (uploadProgress !== null) return;
     const files = e.target.files;
     if (files && files.length > 0) {
-      onFileSelected?.(files[0]);
+      const file = files[0];
+      if (file.name.toLowerCase().endsWith(".mp4") || file.type === "video/mp4") {
+        onFileSelected?.(file);
+      } else {
+        alert("MP4 형식의 영상 파일만 업로드할 수 있습니다.");
+      }
     }
   };
 
@@ -95,7 +100,7 @@ const DropZone: FunctionComponent<DropZoneType> = ({ className = "", uploadProgr
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="video/*"
+                  accept="video/mp4, .mp4"
                   className="hidden"
                   onChange={handleFileChange}
                 />
