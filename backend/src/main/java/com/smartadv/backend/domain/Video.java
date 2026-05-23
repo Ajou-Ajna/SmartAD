@@ -28,6 +28,8 @@ public class Video {
     
     private Long fileSize;
 
+    private Long userId;
+
     private LocalDateTime createdAt;
 
     @PrePersist
@@ -36,9 +38,10 @@ public class Video {
     }
 
     @Builder
-    public Video(String originalFileName, String s3Url, Long fileSize) {
+    public Video(String originalFileName, String s3Url, Long fileSize, Long userId) {
         this.originalFileName = originalFileName;
         this.s3Url = s3Url;
         this.fileSize = fileSize;
+        this.userId = userId;
     }
 }

@@ -6,6 +6,7 @@ import {
 } from "react";
 import IconButtonStandard from "./IconButtonStandard";
 import { useNavigate } from "react-router-dom";
+import { useAppContext } from "../context/AppContext";
 
 export type NavigationRail1Type = {
   className?: string;
@@ -59,6 +60,7 @@ const NavigationRail1: FunctionComponent<NavigationRail1Type> = ({
   }, [menuFabPadding]);
 
   const navigate = useNavigate();
+  const { user, logout } = useAppContext();
 
   const onUploadClick = useCallback(() => {
     navigate("/");
@@ -96,7 +98,15 @@ const NavigationRail1: FunctionComponent<NavigationRail1Type> = ({
           leadingIconBorder={leadingIconBorder}
           leadingIconPadding={leadingIconPadding}
           leadingIconBackgroundColor={leadingIconBackgroundColor}
-          onClick={() => navigate("/login")}
+          onClick={() => {
+            if (user) {
+              if (window.confirm("로그아웃 하시겠습니까?")) {
+                logout();
+              }
+            } else {
+              navigate("/login");
+            }
+          }}
         />
         <div className="w-[62px] h-[75px] flex flex-col items-center gap-1 cursor-pointer" onClick={onUploadClick}>
           <div className="flex items-start py-0 px-[3px]">

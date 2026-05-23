@@ -1,11 +1,15 @@
-import { FunctionComponent } from "react";
+import { FunctionComponent, useEffect } from "react";
 import NavigationRail1 from "../components/NavigationRail1";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 
 const Archive: FunctionComponent = () => {
   const navigate = useNavigate();
-  const { archiveItems, toggleLike } = useAppContext();
+  const { archiveItems, toggleLike, setCurrentItem, fetchArchive } = useAppContext();
+
+  useEffect(() => {
+    fetchArchive();
+  }, []);
 
   return (
     <div className="w-full min-h-screen relative bg-schemes-surface flex flex-col items-start py-0 px-[13px] box-border leading-[normal] tracking-[normal]">
@@ -50,10 +54,11 @@ const Archive: FunctionComponent = () => {
                     key={item.id}
                     className="self-stretch rounded-xl bg-schemes-surface-container-lowest border-[#e0e0e0] border-solid border-[1px] flex items-center p-4 gap-4 cursor-pointer"
                     onClick={() => {
+                      setCurrentItem(item);
                       if (item.type === "url") {
-                        navigate("/view");
+                        navigate("/view", { state: { audioUrl: item.audioFileName, videoUrl: item.fileName } });
                       } else {
-                        navigate("/download");
+                        navigate("/view", { state: { audioUrl: item.audioFileName, videoUrl: item.fileName } }); // Navigate to /view to play the video directly!
                       }
                     }}
                   >

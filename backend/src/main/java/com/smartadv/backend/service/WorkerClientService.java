@@ -51,7 +51,7 @@ public class WorkerClientService {
     // 실행 중인 프로세스를 jobId로 추적 (취소 기능용)
     private final ConcurrentHashMap<Long, Process> runningProcesses = new ConcurrentHashMap<>();
 
-    @Async
+    @Async("pipelineExecutor")
     public void executeMockPipeline(Long videoId, AnalysisJob job) {
         try {
             log.info("Starting Actual Script Pipeline for video {}", videoId);
@@ -66,10 +66,59 @@ public class WorkerClientService {
 
             Path inputVideoPath = workspace.resolve("input.mp4");
             
-            // DOWNLOAD FROM S3
+            // DOWNLOAD FROM S3 / YOUTUBE
             if (video.getS3Url().startsWith("mock-s3://")) {
                 String localOriginalPath = video.getS3Url().replace("mock-s3://", "");
                 Files.copy(Paths.get(localOriginalPath), inputVideoPath, StandardCopyOption.REPLACE_EXISTING);
+            } else if (video.getS3Url().startsWith("youtube:")) {
+                String youtubeUrl = video.getS3Url().replace("youtube:", "");
+                log.info("Downloading video from YouTube using yt-dlp: {}", youtubeUrl);
+                updateJobDetail(job.getId(), "유튜브 동영상 다운로드 중...", 1);
+                
+                // Run yt-dlp command to download the video directly as input.mp4
+                List<String> ytdlCmd = new ArrayList<>();
+                ytdlCmd.add("yt-dlp");
+                
+                // Add cookies if cookies file exists
+                Path cookiesPath = Paths.get("/opt/smartadv/cookies.txt");
+                if (Files.exists(cookiesPath)) {
+                    ytdlCmd.add("--cookies");
+                    ytdlCmd.add(cookiesPath.toString());
+                    log.info("Using cookies file for yt-dlp to bypass bot detection: {}", cookiesPath);
+                }
+                
+                // Explicitly request node as JS runtime to decrypt signature challenge
+                ytdlCmd.add("--js-runtimes");
+                ytdlCmd.add("node");
+                
+                ytdlCmd.add("-f");
+                ytdlCmd.add("best[ext=mp4]/best");
+                ytdlCmd.add("--merge-output-format");
+                ytdlCmd.add("mp4");
+                ytdlCmd.add("-o");
+                ytdlCmd.add(inputVideoPath.toString());
+                ytdlCmd.add(youtubeUrl);
+                
+                ProcessBuilder pb = new ProcessBuilder(ytdlCmd);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                
+                // Keep track of the process for cancellation
+                runningProcesses.put(job.getId(), process);
+                
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        log.info("[yt-dlp] {}", line);
+                    }
+                }
+                
+                int exitCode = process.waitFor();
+                runningProcesses.remove(job.getId());
+                
+                if (exitCode != 0) {
+                    throw new RuntimeException("yt-dlp failed to download YouTube video. Exit code: " + exitCode);
+                }
             } else {
                 log.info("Downloading video from S3: {}", video.getS3Url());
                 storageService.downloadFile(video.getS3Url(), inputVideoPath);
@@ -81,9 +130,9 @@ public class WorkerClientService {
             // 2. PREPROCESSING (0% ~ 33%)
             updateJobStatus(job.getId(), "PREPROCESSING", 1);
             updateJobDetail(job.getId(), "전처리 엔진 시작 중...", 1);
-            int exitCode = runPythonProcess("engine_backup.py", smartadvInput, smartadvOutput, job.getId());
+            int exitCode = runPythonProcess("engine.py", smartadvInput, smartadvOutput, job.getId());
             checkCancelled(job.getId());
-            if (exitCode != 0) throw new RuntimeException("engine_backup.py failed with exit code " + exitCode);
+            if (exitCode != 0) throw new RuntimeException("engine.py failed with exit code " + exitCode);
 
             // 3. SCRIPT_GENERATING (34% ~ 66%)
             updateJobStatus(job.getId(), "SCRIPT_GENERATING", 34);
@@ -109,6 +158,7 @@ public class WorkerClientService {
 
             Result result = Result.builder()
                 .jobId(job.getId())
+                .userId(job.getUserId())
                 .scriptText("자동 추출된 화면 해설 스크립트 기반 생성 결과물입니다.")
                 .narrationAudioPath(finalAudioS3Url)
                 .mergedVideoPath(finalVideoS3Url)

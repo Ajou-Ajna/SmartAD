@@ -10,8 +10,26 @@ const ProgressPage: FunctionComponent = () => {
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("영상 업로드 중...");
   const [statusDetail, setStatusDetail] = useState("");
+  const [congestion, setCongestion] = useState<{
+    queuePosition: number;
+    estimatedWaitTimeSeconds: number;
+    cpuUsage: number;
+    memoryUsage: number;
+    s3RemainingMb: number;
+    s3RemainingPercent: number;
+  } | null>(null);
   const jobDoneRef = useRef(false);
   const videoIdRef = useRef<number | null>(null);
+
+  const formatWaitTime = (seconds: number) => {
+    if (seconds <= 0) return "즉시 시작 예정";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins > 0) {
+      return `${mins}분 ${secs}초`;
+    }
+    return `${secs}초`;
+  };
 
   useEffect(() => {
     const videoId = (location.state as any)?.videoId;
@@ -23,7 +41,9 @@ const ProgressPage: FunctionComponent = () => {
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/jobs/${videoId}`);
+        const savedToken = localStorage.getItem("smartadv_token");
+        const headers: HeadersInit = savedToken ? { "Authorization": "Bearer " + savedToken } : {};
+        const res = await fetch(`/api/jobs/${videoId}`, { headers });
         if (res.ok) {
           const job = await res.json();
           setProgress(job.progress || 0);
@@ -41,11 +61,24 @@ const ProgressPage: FunctionComponent = () => {
             setStatusDetail(job.statusDetail);
           }
 
+          if (job.queuePosition !== undefined) {
+            setCongestion({
+              queuePosition: job.queuePosition,
+              estimatedWaitTimeSeconds: job.estimatedWaitTimeSeconds,
+              cpuUsage: job.cpuUsage,
+              memoryUsage: job.memoryUsage,
+              s3RemainingMb: job.s3RemainingMb,
+              s3RemainingPercent: job.s3RemainingPercent
+            });
+          }
+
           if (job.status === "DONE") {
             jobDoneRef.current = true;
             clearInterval(interval);
             // Get the resulting audio url
-            const resultRes = await fetch(`/api/results/video/${videoId}`);
+            const savedToken = localStorage.getItem("smartadv_token");
+            const headers: HeadersInit = savedToken ? { "Authorization": "Bearer " + savedToken } : {};
+            const resultRes = await fetch(`/api/results/video/${videoId}`, { headers });
             let audioUrl = "";
             let videoUrl = "";
             if (resultRes.ok) {
@@ -73,8 +106,9 @@ const ProgressPage: FunctionComponent = () => {
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!jobDoneRef.current && videoIdRef.current) {
-        // sendBeacon은 탭이 닫혀도 브라우저가 확실히 전송해줌
-        navigator.sendBeacon(`/api/jobs/${videoIdRef.current}/cancel`);
+        const savedToken = localStorage.getItem("smartadv_token");
+        const headers: HeadersInit = savedToken ? { "Authorization": "Bearer " + savedToken } : {};
+        fetch(`/api/jobs/${videoIdRef.current}/cancel`, { method: "POST", headers, keepalive: true }).catch(() => {});
         e.preventDefault();
       }
     };
@@ -85,7 +119,9 @@ const ProgressPage: FunctionComponent = () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       // 컴포넌트 언마운트 시 (SPA 내 뒤로가기 등) 취소 호출
       if (!jobDoneRef.current && videoIdRef.current) {
-        fetch(`/api/jobs/${videoIdRef.current}/cancel`, { method: "DELETE" }).catch(() => {});
+        const savedToken = localStorage.getItem("smartadv_token");
+        const headers: HeadersInit = savedToken ? { "Authorization": "Bearer " + savedToken } : {};
+        fetch(`/api/jobs/${videoIdRef.current}/cancel`, { method: "DELETE", headers }).catch(() => {});
       }
     };
   }, []);
@@ -141,6 +177,92 @@ const ProgressPage: FunctionComponent = () => {
           stroke: #78d257;
           stroke-linecap: round;
           transition: stroke-dashoffset 0.6s ease;
+        }
+        .congestion-card {
+          width: 90%;
+          max-width: 440px;
+          background: #ffffff;
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          border-radius: 16px;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.04), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+          padding: 20px;
+          margin-top: 16px;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .congestion-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.06), 0 10px 10px -5px rgba(0, 0, 0, 0.03);
+        }
+        .congestion-title {
+          font-size: 15px;
+          font-weight: 600;
+          color: #1e293b;
+          margin-bottom: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+        .metric-group {
+          margin-bottom: 12px;
+          text-align: left;
+        }
+        .metric-group:last-child {
+          margin-bottom: 0;
+        }
+        .metric-header {
+          display: flex;
+          justify-content: space-between;
+          font-size: 12px;
+          color: #64748b;
+          margin-bottom: 5px;
+          font-weight: 500;
+        }
+        .metric-bar-bg {
+          width: 100%;
+          height: 6px;
+          background: #e2e8f0;
+          border-radius: 9999px;
+          overflow: hidden;
+        }
+        .metric-bar-fill {
+          height: 100%;
+          border-radius: 9999px;
+          transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .queue-badge-container {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 16px;
+          border-bottom: 1px dashed #e2e8f0;
+          padding-bottom: 14px;
+        }
+        .queue-badge {
+          flex: 1;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          padding: 8px 10px;
+          text-align: center;
+        }
+        .queue-badge-title {
+          font-size: 11px;
+          color: #64748b;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          margin-bottom: 2px;
+        }
+        .queue-badge-value {
+          font-size: 15px;
+          font-weight: 700;
+          color: #0f172a;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.4s ease-out forwards;
         }
       `}</style>
       <main className="self-stretch flex-1 flex items-start justify-between py-[5px] px-0 gap-0 text-left text-[16px] text-schemes-on-surface-variant font-[Roboto]">
@@ -209,6 +331,91 @@ const ProgressPage: FunctionComponent = () => {
                   style={{ fontSize: '13px', marginTop: '-12px' }}
                 >
                   {statusDetail}
+                </div>
+              )}
+
+              {/* Real-time Queue & Server Congestion Monitor Card */}
+              {isActive && congestion && (
+                <div className="congestion-card animate-fade-in mx-auto">
+                  <div className="congestion-title">
+                    <svg className="w-5 h-5 text-blue-500 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    <span>실시간 대기열 & 서버 상태</span>
+                  </div>
+
+                  <div className="queue-badge-container">
+                    <div className="queue-badge">
+                      <div className="queue-badge-title">대기 순번</div>
+                      <div className="queue-badge-value">
+                        {congestion.queuePosition === 0 ? (
+                          <span className="text-green-600 font-bold flex items-center justify-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-green-500 animate-ping inline-block"></span>
+                            현재 처리 중
+                          </span>
+                        ) : (
+                          <span className="text-blue-600 font-bold">{congestion.queuePosition}번</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="queue-badge">
+                      <div className="queue-badge-title">예상 대기 시간</div>
+                      <div className="queue-badge-value text-slate-800 font-bold">
+                        {formatWaitTime(congestion.estimatedWaitTimeSeconds)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CPU Load */}
+                  <div className="metric-group">
+                    <div className="metric-header">
+                      <span>서버 CPU 부하</span>
+                      <span className="font-bold text-slate-700">{congestion.cpuUsage.toFixed(1)}%</span>
+                    </div>
+                    <div className="metric-bar-bg">
+                      <div
+                        className="metric-bar-fill"
+                        style={{
+                          width: `${congestion.cpuUsage}%`,
+                          backgroundColor: congestion.cpuUsage > 80 ? '#ef4444' : congestion.cpuUsage > 50 ? '#f59e0b' : '#3b82f6'
+                        }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* JVM Memory Usage */}
+                  <div className="metric-group">
+                    <div className="metric-header">
+                      <span>서버 메모리 사용량</span>
+                      <span className="font-bold text-slate-700">{congestion.memoryUsage.toFixed(1)}%</span>
+                    </div>
+                    <div className="metric-bar-bg">
+                      <div
+                        className="metric-bar-fill"
+                        style={{
+                          width: `${congestion.memoryUsage}%`,
+                          backgroundColor: congestion.memoryUsage > 85 ? '#ef4444' : congestion.memoryUsage > 60 ? '#f59e0b' : '#8b5cf6'
+                        }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* S3 Capacity Remaining */}
+                  <div className="metric-group">
+                    <div className="metric-header">
+                      <span>S3 스토리지 잔여 용량</span>
+                      <span className="font-bold text-slate-700">{(congestion.s3RemainingMb / 1024).toFixed(2)} GB ({(congestion.s3RemainingPercent).toFixed(1)}%)</span>
+                    </div>
+                    <div className="metric-bar-bg">
+                      <div
+                        className="metric-bar-fill"
+                        style={{
+                          width: `${congestion.s3RemainingPercent}%`,
+                          backgroundColor: congestion.s3RemainingPercent < 15 ? '#ef4444' : congestion.s3RemainingPercent < 40 ? '#f59e0b' : '#10b981'
+                        }}
+                      ></div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

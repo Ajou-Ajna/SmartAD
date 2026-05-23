@@ -1,11 +1,15 @@
-import { FunctionComponent } from "react";
+import { FunctionComponent, useEffect } from "react";
 import NavigationRail1 from "../components/NavigationRail1";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 
 const Likes: FunctionComponent = () => {
   const navigate = useNavigate();
-  const { archiveItems, toggleLike } = useAppContext();
+  const { archiveItems, toggleLike, setCurrentItem, fetchArchive } = useAppContext();
+
+  useEffect(() => {
+    fetchArchive();
+  }, []);
   const likedItems = archiveItems.filter((item) => item.liked);
 
   return (
@@ -51,11 +55,8 @@ const Likes: FunctionComponent = () => {
                     key={item.id}
                     className="self-stretch rounded-xl bg-schemes-surface-container-lowest border-[#e0e0e0] border-solid border-[1px] flex items-center p-4 gap-4 cursor-pointer"
                     onClick={() => {
-                      if (item.type === "url") {
-                        navigate("/view");
-                      } else {
-                        navigate("/download");
-                      }
+                      setCurrentItem(item);
+                      navigate("/view", { state: { audioUrl: item.audioFileName, videoUrl: item.fileName } });
                     }}
                   >
                     <div className="w-10 h-10 rounded-lg bg-schemes-secondary-container flex items-center justify-center shrink-0">

@@ -22,4 +22,9 @@ public interface StorageService {
      * Load the resource from the given URL (mock-s3:// or real S3 https://)
      */
     org.springframework.core.io.Resource loadAsResource(String url);
+
+    /**
+     * Get remaining storage capacity in bytes
+     */
+    long getRemainingCapacityBytes();
 }

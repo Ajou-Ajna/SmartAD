@@ -109,4 +109,13 @@ public class MockS3StorageService implements StorageService {
         Path path = Paths.get(localPathStr);
         return new org.springframework.core.io.FileSystemResource(path);
     }
+
+    @Override
+    public long getRemainingCapacityBytes() {
+        try {
+            return this.rootLocation.toFile().getFreeSpace();
+        } catch (Exception e) {
+            return 50L * 1024 * 1024 * 1024; // 50 GB Fallback
+        }
+    }
 }

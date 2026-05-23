@@ -3,22 +3,21 @@ logging:
     org.springframework.web: DEBUG
 spring:
   datasource:
-    url: jdbc:h2:mem:smartadv
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: ${SPRING_DATASOURCE_URL:jdbc:h2:mem:smartadv}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:org.h2.Driver}
+    username: ${SPRING_DATASOURCE_USERNAME:sa}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
   h2:
     console:
       enabled: true
       path: /h2-console
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
     show-sql: true
     properties:
       hibernate:
         format_sql: true
-        dialect: org.hibernate.dialect.H2Dialect
 
   servlet:
     multipart:
@@ -27,6 +26,8 @@ spring:
       max-request-size: 2000MB
 
 smartadv:
+  security:
+    admin-emails: ${SMARTADV_ADMIN_EMAILS:}
   storage:
     mock-s3-dir: ${SMARTADV_STORAGE_DIR:../mock-s3-storage}
   cors:

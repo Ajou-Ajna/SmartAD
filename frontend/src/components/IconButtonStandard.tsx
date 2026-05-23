@@ -1,4 +1,5 @@
 import { FunctionComponent, useMemo, type CSSProperties } from "react";
+import { useAppContext } from "../context/AppContext";
 
 export type IconButtonStandardType = {
   className?: string;
@@ -40,6 +41,7 @@ const IconButtonStandard: FunctionComponent<IconButtonStandardType> = ({
   leadingIconPadding,
   leadingIconBackgroundColor,
 }) => {
+  const { user } = useAppContext();
   const variantKey = [size, state, type, width].join("-");
 
   const leadingIconStyle: CSSProperties = useMemo(() => {
@@ -66,9 +68,9 @@ const IconButtonStandard: FunctionComponent<IconButtonStandardType> = ({
         onClick={onClick}
       >
         <img
-          className={`cursor-pointer [border:none] p-0 bg-[transparent] h-10 w-10 rounded-[100px] ${getContentIconStyle(variantKey)}`}
+          className={`cursor-pointer [border:none] p-0 bg-[transparent] h-10 w-10 rounded-[100px] object-cover ${getContentIconStyle(variantKey)}`}
           alt=""
-          src="/Content1.svg"
+          src={user && user.picture ? user.picture : "/Content1.svg"}
         />
       </button>
     )
