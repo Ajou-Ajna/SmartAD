@@ -200,4 +200,29 @@ public class S3StorageService implements StorageService {
             throw new StorageException("Failed to load S3 file as resource: " + s3Url, e);
         }
     }
+
+    @Override
+    public long getRemainingCapacityBytes() {
+        try {
+            long totalSize = 0;
+            software.amazon.awssdk.services.s3.model.ListObjectsV2Request request = 
+                software.amazon.awssdk.services.s3.model.ListObjectsV2Request.builder()
+                    .bucket(bucketName)
+                    .build();
+            
+            software.amazon.awssdk.services.s3.model.ListObjectsV2Response response;
+            do {
+                response = s3Client.listObjectsV2(request);
+                for (software.amazon.awssdk.services.s3.model.S3Object s3Object : response.contents()) {
+                    totalSize += s3Object.size();
+                }
+                request = request.toBuilder().continuationToken(response.nextContinuationToken()).build();
+            } while (response.isTruncated());
+
+            long maxS3Bytes = 5L * 1024 * 1024 * 1024; // 5 GB
+            return Math.max(0L, maxS3Bytes - totalSize);
+        } catch (Exception e) {
+            return 1024L * 1024 * 1024; // 1 GB Fallback
+        }
+    }
 }
