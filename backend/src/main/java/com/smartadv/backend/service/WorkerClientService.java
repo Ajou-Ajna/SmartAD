@@ -87,6 +87,10 @@ public class WorkerClientService {
                     log.info("Using cookies file for yt-dlp to bypass bot detection: {}", cookiesPath);
                 }
                 
+                // Explicitly request node as JS runtime to decrypt signature challenge
+                ytdlCmd.add("--js-runtimes");
+                ytdlCmd.add("node");
+                
                 ytdlCmd.add("-f");
                 ytdlCmd.add("best[ext=mp4]/best");
                 ytdlCmd.add("--merge-output-format");
