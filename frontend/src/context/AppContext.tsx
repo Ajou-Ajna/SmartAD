@@ -17,6 +17,7 @@ export type UserProfile = {
   email: string;
   name: string;
   picture: string;
+  role: string;
 };
 
 type AppContextType = {

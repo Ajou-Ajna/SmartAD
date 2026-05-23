@@ -105,6 +105,18 @@ const DragDrop: FunctionComponent = () => {
                     console.error("Failed to parse response", e);
                     setUploadProgress(null);
                   }
+                } else if (xhr.status === 429) {
+                  try {
+                    const data = JSON.parse(xhr.responseText);
+                    const nextTime = new Date(data.nextAvailableTime).toLocaleTimeString("ko-KR", {
+                      hour: "numeric",
+                      minute: "2-digit"
+                    });
+                    alert(`[해설 생성 제한]\n\n일반 사용자는 해설 생성 성공 후 3시간에 1회만 생성할 수 있습니다.\n\n다음 생성 가능 시각: ${nextTime}`);
+                  } catch (err) {
+                    alert("일반 회원은 해설 생성 성공 후 3시간 동안 재생성이 제한됩니다.");
+                  }
+                  setUploadProgress(null);
                 } else {
                   console.error("Upload failed", xhr.statusText);
                   setUploadProgress(null);

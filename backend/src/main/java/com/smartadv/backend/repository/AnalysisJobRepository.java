@@ -7,4 +7,5 @@ import java.util.Optional;
 
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, Long> {
     Optional<AnalysisJob> findByVideoId(Long videoId);
+    Optional<AnalysisJob> findFirstByUserIdAndStatusOrderByFinishedAtDesc(Long userId, String status);
 }

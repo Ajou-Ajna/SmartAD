@@ -35,23 +35,33 @@ public class User {
     @Column(length = 1000)
     private String picture;
 
+    private String role;
+
     private LocalDateTime createdAt;
 
     @PrePersist
     public void prePersist() {
         this.createdAt = LocalDateTime.now();
+        if (this.role == null) {
+            this.role = "USER";
+        }
     }
 
     @Builder
-    public User(String googleSub, String email, String name, String picture) {
+    public User(String googleSub, String email, String name, String picture, String role) {
         this.googleSub = googleSub;
         this.email = email;
         this.name = name;
         this.picture = picture;
+        this.role = role != null ? role : "USER";
     }
 
     public void updateProfile(String name, String picture) {
         this.name = name;
         this.picture = picture;
+    }
+
+    public void updateRole(String role) {
+        this.role = role;
     }
 }

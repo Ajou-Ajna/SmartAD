@@ -23,6 +23,8 @@ spring:
       max-request-size: 2000MB
 
 smartadv:
+  security:
+    admin-emails: ${SMARTADV_ADMIN_EMAILS:}
   storage:
     mock-s3-dir: ${SMARTADV_STORAGE_DIR:../mock-s3-storage}
   cors:

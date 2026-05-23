@@ -16,6 +16,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Value;
+
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -24,6 +26,9 @@ public class AuthController {
     private final UserRepository userRepository;
     private final SessionTokenRepository sessionTokenRepository;
     private final RestTemplate restTemplate = new RestTemplate();
+
+    @Value("${smartadv.security.admin-emails:}")
+    private String adminEmails;
 
     public record GoogleLoginRequest(String credential) {}
 
@@ -51,15 +56,30 @@ public class AuthController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Incomplete Google Token payload."));
             }
 
+            // Determine user role based on environment variable config
+            String role = "USER";
+            if (adminEmails != null && !adminEmails.isBlank()) {
+                String[] emails = adminEmails.split(",");
+                for (String adminEmail : emails) {
+                    if (adminEmail.trim().equalsIgnoreCase(email)) {
+                        role = "ADMIN";
+                        break;
+                    }
+                }
+            }
+
+            final String finalRole = role;
             User user = userRepository.findByGoogleSub(googleSub)
                     .orElseGet(() -> userRepository.save(User.builder()
                             .googleSub(googleSub)
                             .email(email)
                             .name(name)
                             .picture(picture)
+                            .role(finalRole)
                             .build()));
 
             user.updateProfile(name, picture);
+            user.updateRole(finalRole);
             userRepository.save(user);
 
             // Generate session token valid for 7 days
@@ -77,7 +97,8 @@ public class AuthController {
                     "id", user.getId(),
                     "email", user.getEmail(),
                     "name", user.getName(),
-                    "picture", user.getPicture() != null ? user.getPicture() : ""
+                    "picture", user.getPicture() != null ? user.getPicture() : "",
+                    "role", user.getRole()
             ));
 
             return ResponseEntity.ok(response);
@@ -96,7 +117,8 @@ public class AuthController {
                 "id", user.getId(),
                 "email", user.getEmail(),
                 "name", user.getName(),
-                "picture", user.getPicture() != null ? user.getPicture() : ""
+                "picture", user.getPicture() != null ? user.getPicture() : "",
+                "role", user.getRole()
         ));
     }
 
