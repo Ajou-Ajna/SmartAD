@@ -8,7 +8,7 @@ const Download: FunctionComponent = () => {
   const location = useLocation();
   const audioUrlFromBackend = (location.state as any)?.audioUrl;
   const downloadUrl = audioUrlFromBackend
-    ? `/api/storage/stream?url=${encodeURIComponent(audioUrlFromBackend)}`
+    ? (audioUrlFromBackend.startsWith("http") ? audioUrlFromBackend : `/api/storage/stream?url=${encodeURIComponent(audioUrlFromBackend)}`)
     : "/dummy_audio.wav";
 
   const handleDownload = () => {
