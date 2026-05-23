@@ -51,7 +51,7 @@ public class WorkerClientService {
     // 실행 중인 프로세스를 jobId로 추적 (취소 기능용)
     private final ConcurrentHashMap<Long, Process> runningProcesses = new ConcurrentHashMap<>();
 
-    @Async
+    @Async("pipelineExecutor")
     public void executeMockPipeline(Long videoId, AnalysisJob job) {
         try {
             log.info("Starting Actual Script Pipeline for video {}", videoId);
