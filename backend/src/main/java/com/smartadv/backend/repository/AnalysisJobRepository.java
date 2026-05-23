@@ -11,4 +11,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, Long> 
 
     @org.springframework.data.jpa.repository.Query("SELECT COUNT(j) FROM AnalysisJob j WHERE j.id < :jobId AND j.status IN ('PENDING', 'PREPROCESSING', 'SCRIPT_GENERATING', 'TTS_GENERATING', 'MERGING')")
     long countActiveJobsBefore(@org.springframework.data.repository.query.Param("jobId") Long jobId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(j) FROM AnalysisJob j WHERE j.status IN ('PENDING', 'PREPROCESSING', 'SCRIPT_GENERATING', 'TTS_GENERATING', 'MERGING')")
+    long countAllActiveJobs();
 }

@@ -1,4 +1,4 @@
-import { FunctionComponent, useState, useCallback } from "react";
+import { FunctionComponent, useState, useCallback, useEffect } from "react";
 import { Button } from "@mui/material";
 import NavigationRail1 from "../components/NavigationRail1";
 import { useNavigate } from "react-router-dom";
@@ -23,6 +23,44 @@ const Main: FunctionComponent = () => {
   const navigate = useNavigate();
   const { addArchiveItem } = useAppContext();
   const [urlInput, setUrlInput] = useState("");
+  const [congestion, setCongestion] = useState<{
+    queuePosition: number;
+    estimatedWaitTimeSeconds: number;
+    cpuUsage: number;
+    memoryUsage: number;
+    s3RemainingMb: number;
+    s3RemainingPercent: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const fetchCongestion = async () => {
+      try {
+        const savedToken = localStorage.getItem("smartadv_token");
+        const headers: HeadersInit = savedToken ? { "Authorization": "Bearer " + savedToken } : {};
+        const res = await fetch("/api/jobs/congestion", { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setCongestion(data);
+        }
+      } catch (e) {
+        console.error("Failed to fetch system congestion", e);
+      }
+    };
+
+    fetchCongestion();
+    const interval = setInterval(fetchCongestion, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatWaitTime = (seconds: number) => {
+    if (seconds <= 0) return "즉시 시작 예정";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins > 0) {
+      return `${mins}분 ${secs}초`;
+    }
+    return `${secs}초`;
+  };
 
   const onTrailingElementsIconClick = useCallback(async () => {
     const raw = urlInput.trim();
@@ -79,6 +117,73 @@ const Main: FunctionComponent = () => {
 
   return (
     <div className="w-full min-h-screen relative bg-schemes-surface flex flex-col items-start py-0 px-[13px] box-border leading-[normal] tracking-[normal]">
+      <style>{`
+        .mini-congestion-card {
+          width: 95%;
+          max-width: 500px;
+          background: #ffffff;
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          border-radius: 12px;
+          padding: 12px 16px;
+          margin-top: 20px;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.01);
+          animation: fadeIn 0.4s ease-out forwards;
+        }
+        .mini-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+          border-bottom: 1px solid #f1f5f9;
+          padding-bottom: 5px;
+        }
+        .mini-card-title {
+          font-size: 12px;
+          font-weight: 600;
+          color: #334155;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .mini-card-wait {
+          font-size: 11px;
+          font-weight: 500;
+          color: #475569;
+        }
+        .mini-metrics-row {
+          display: flex;
+          gap: 12px;
+        }
+        .mini-metric-col {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          text-align: left;
+        }
+        .mini-metric-label {
+          font-size: 10px;
+          color: #64748b;
+          display: flex;
+          justify-content: space-between;
+        }
+        .mini-bar-bg {
+          width: 100%;
+          height: 4px;
+          background: #e2e8f0;
+          border-radius: 9999px;
+          overflow: hidden;
+        }
+        .mini-bar-fill {
+          height: 100%;
+          border-radius: 9999px;
+          transition: width 0.8s ease;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
       <main className="self-stretch flex-1 flex items-start justify-between py-[5px] px-0 gap-0 text-left text-[16px] text-schemes-on-surface-variant font-[Roboto]">
           <NavigationRail1
             size="Medium"
@@ -152,6 +257,76 @@ const Main: FunctionComponent = () => {
               인공지능이 자동 생성하는 해설이므로, 실제 영상 내용과 다소 다를 수
               있습니다.
             </div>
+
+            {/* Real-time mini system status dashboard */}
+            {congestion && (
+              <div className="mini-congestion-card text-left">
+                <div className="mini-card-header">
+                  <div className="mini-card-title">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                    </span>
+                    <span>실시간 서버 상태 {congestion.queuePosition > 0 ? `(대기열 ${congestion.queuePosition}개)` : '(즉시 시작 가능)'}</span>
+                  </div>
+                  <div className="mini-card-wait">
+                    예상 대기: <span className="font-bold text-blue-600">{congestion.queuePosition > 0 ? formatWaitTime(congestion.estimatedWaitTimeSeconds) : '즉시 시작'}</span>
+                  </div>
+                </div>
+                <div className="mini-metrics-row">
+                  {/* CPU */}
+                  <div className="mini-metric-col">
+                    <div className="mini-metric-label">
+                      <span>CPU 부하</span>
+                      <span className="font-bold">{congestion.cpuUsage.toFixed(0)}%</span>
+                    </div>
+                    <div className="mini-bar-bg">
+                      <div 
+                        className="mini-bar-fill" 
+                        style={{ 
+                          width: `${congestion.cpuUsage}%`, 
+                          backgroundColor: congestion.cpuUsage > 80 ? '#ef4444' : congestion.cpuUsage > 50 ? '#f59e0b' : '#3b82f6'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Memory */}
+                  <div className="mini-metric-col">
+                    <div className="mini-metric-label">
+                      <span>메모리</span>
+                      <span className="font-bold">{congestion.memoryUsage.toFixed(0)}%</span>
+                    </div>
+                    <div className="mini-bar-bg">
+                      <div 
+                        className="mini-bar-fill" 
+                        style={{ 
+                          width: `${congestion.memoryUsage}%`, 
+                          backgroundColor: congestion.memoryUsage > 85 ? '#ef4444' : congestion.memoryUsage > 60 ? '#f59e0b' : '#8b5cf6'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* S3 Storage */}
+                  <div className="mini-metric-col">
+                    <div className="mini-metric-label">
+                      <span>S3 여유</span>
+                      <span className="font-bold">{congestion.s3RemainingPercent.toFixed(0)}%</span>
+                    </div>
+                    <div className="mini-bar-bg">
+                      <div 
+                        className="mini-bar-fill" 
+                        style={{ 
+                          width: `${congestion.s3RemainingPercent}%`, 
+                          backgroundColor: congestion.s3RemainingPercent < 15 ? '#ef4444' : '#10b981'
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </main>
     </div>
