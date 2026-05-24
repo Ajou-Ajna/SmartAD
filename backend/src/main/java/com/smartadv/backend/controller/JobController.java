@@ -50,9 +50,15 @@ public class JobController {
 
         double memoryUsage = 0.0;
         try {
-            long freeMemory = Runtime.getRuntime().freeMemory();
-            long totalMemory = Runtime.getRuntime().totalMemory();
-            memoryUsage = (double) (totalMemory - freeMemory) / totalMemory * 100;
+            java.lang.management.OperatingSystemMXBean memBean = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
+            if (memBean instanceof com.sun.management.OperatingSystemMXBean) {
+                com.sun.management.OperatingSystemMXBean sunOs = (com.sun.management.OperatingSystemMXBean) memBean;
+                long total = sunOs.getTotalMemorySize();
+                long free = sunOs.getFreeMemorySize();
+                if (total > 0) {
+                    memoryUsage = (double) (total - free) / total * 100;
+                }
+            }
         } catch (Exception e) {}
         if (memoryUsage <= 0.0) {
             memoryUsage = 35.0 + Math.random() * 10.0; // Realistic fallback
@@ -116,9 +122,15 @@ public class JobController {
 
                     double memoryUsage = 0.0;
                     try {
-                        long freeMemory = Runtime.getRuntime().freeMemory();
-                        long totalMemory = Runtime.getRuntime().totalMemory();
-                        memoryUsage = (double) (totalMemory - freeMemory) / totalMemory * 100;
+                        java.lang.management.OperatingSystemMXBean memBean = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
+                        if (memBean instanceof com.sun.management.OperatingSystemMXBean) {
+                            com.sun.management.OperatingSystemMXBean sunOs = (com.sun.management.OperatingSystemMXBean) memBean;
+                            long total = sunOs.getTotalMemorySize();
+                            long free = sunOs.getFreeMemorySize();
+                            if (total > 0) {
+                                memoryUsage = (double) (total - free) / total * 100;
+                            }
+                        }
                     } catch (Exception e) {}
                     if (memoryUsage <= 0.0) {
                         memoryUsage = 35.0 + Math.random() * 10.0; // Realistic fallback
