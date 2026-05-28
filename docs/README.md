@@ -1,5 +1,5 @@
 # SmartAD
-SmartADV : Automatic Audio Description system
+SmartAD : Automatic Audio Description system
 
 ## License
 
