@@ -1,5 +1,5 @@
-# SmartADV
-SmartADV : Automatic Audio Description Generate by Vision
+# SmartAD
+SmartADV : Automatic Audio Description system
 
 ## License
 
