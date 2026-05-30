@@ -31,7 +31,7 @@ public class S3StorageService implements StorageService {
 
     private Path cacheLocation;
 
-    private static final long MAX_S3_STORAGE_BYTES = 5L * 1024 * 1024 * 1024; // 5 GB
+    private static final long MAX_S3_STORAGE_BYTES = 100L * 1024 * 1024 * 1024; // 100 GB
 
     public S3StorageService(S3Client s3Client) {
         this.s3Client = s3Client;
@@ -219,7 +219,7 @@ public class S3StorageService implements StorageService {
                 request = request.toBuilder().continuationToken(response.nextContinuationToken()).build();
             } while (response.isTruncated());
 
-            long maxS3Bytes = 5L * 1024 * 1024 * 1024; // 5 GB
+            long maxS3Bytes = 100L * 1024 * 1024 * 1024; // 100 GB
             return Math.max(0L, maxS3Bytes - totalSize);
         } catch (Exception e) {
             return 1024L * 1024 * 1024; // 1 GB Fallback

@@ -70,7 +70,7 @@ public class JobController {
         // S3 storage info
         long remainingBytes = storageService.getRemainingCapacityBytes();
         long remainingMb = remainingBytes / (1024 * 1024);
-        long maxS3Bytes = 5L * 1024 * 1024 * 1024; // 5 GB
+        long maxS3Bytes = 100L * 1024 * 1024 * 1024; // 100 GB
         double remainingPercent = (double) remainingBytes / maxS3Bytes * 100;
         if (remainingPercent > 100.0) remainingPercent = 100.0;
 
@@ -142,7 +142,7 @@ public class JobController {
                     // S3 storage info
                     long remainingBytes = storageService.getRemainingCapacityBytes();
                     long remainingMb = remainingBytes / (1024 * 1024);
-                    long maxS3Bytes = 5L * 1024 * 1024 * 1024; // 5 GB
+                    long maxS3Bytes = 100L * 1024 * 1024 * 1024; // 100 GB
                     double remainingPercent = (double) remainingBytes / maxS3Bytes * 100;
                     if (remainingPercent > 100.0) remainingPercent = 100.0;
 
